@@ -133,8 +133,11 @@ int RunWindowed(Port &port) {
         SDL_SetRenderLogicalPresentation(renderer, 640, 480, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     }
 
+    // (--mute starts with no sound; the menu's Sound row switches it on, so the device is opened all the same)
     Audio audio;
-    if (!port.opt.mute) {
+    port.menu.muted = port.opt.mute;
+    bool silent = false;
+    {
         const SDL_AudioSpec spec{SDL_AUDIO_S16, 2, 44100};
         audio.stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
         if (audio.stream) {
@@ -160,6 +163,7 @@ int RunWindowed(Port &port) {
     // held) or a stick's click (the game is left from its "Quit game"). While it is open the game stands
     // still and the pad works the menu; buttons held as it closes do not reach the game until let go.
     uint16_t previousPad = 0, heldAtClose = 0;
+    unsigned previousMenu = 0;
     bool bothHeld = false;    // a gamepad's Start and Select (Back) together: the menu
     bool backToggled = false; // Back's own press has opened or closed the menu, and Back is still held
     std::vector<uint32_t> menuBase, menuPicture;
@@ -345,9 +349,34 @@ int RunWindowed(Port &port) {
             }
             bothHeld = both;
             backToggled = backToggled && back;
+            // The menu's buttons are the same whatever the game's are set to: the arrows, the d-pad and the
+            // left stick (and the game's own directions); Space, Enter and A choose; Backspace and B go back
+            unsigned menuNow = 0;
+            menuNow |= (previousPad & kPadUp) || keys[SDL_SCANCODE_UP] ? recomp::kMenuUp : 0;
+            menuNow |= (previousPad & kPadDown) || keys[SDL_SCANCODE_DOWN] ? recomp::kMenuDown : 0;
+            menuNow |= (previousPad & kPadLeft) || keys[SDL_SCANCODE_LEFT] ? recomp::kMenuLeft : 0;
+            menuNow |= (previousPad & kPadRight) || keys[SDL_SCANCODE_RIGHT] ? recomp::kMenuRight : 0;
+            menuNow |= keys[SDL_SCANCODE_SPACE] || (keys[SDL_SCANCODE_RETURN] && !(SDL_GetModState() & SDL_KMOD_ALT)) ? recomp::kMenuConfirm : 0;
+            menuNow |= keys[SDL_SCANCODE_BACKSPACE] ? recomp::kMenuBack : 0;
+            for (SDL_Gamepad *gamepad : gamepads) {
+                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_UP) ? recomp::kMenuUp : 0;
+                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_DOWN) ? recomp::kMenuDown : 0;
+                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_LEFT) ? recomp::kMenuLeft : 0;
+                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT) ? recomp::kMenuRight : 0;
+                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH) ? recomp::kMenuConfirm : 0;
+                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_EAST) ? recomp::kMenuBack : 0;
+            }
+            unsigned menuPressed = menuNow & ~previousMenu;
+            previousMenu = menuNow;
+            if (both) {
+                menuPressed = 0;
+            }
             if (port.menu.IsOpen()) {
-                if (pressed) {
-                    port.MenuAct(port.menu.Buttons(pressed));
+                if (menuPressed) {
+                    port.MenuAct(port.menu.Press(menuPressed));
+                    menuDirty = true;
+                } else if (pressed) {
+                    port.menu.Note(""); // (a press of something else still takes the note away)
                     menuDirty = true;
                 }
                 if (!port.menu.IsOpen()) {
@@ -360,6 +389,10 @@ int RunWindowed(Port &port) {
             port.pad[1] = pads[1];
         }
 
+        if (audio.stream && silent != port.menu.muted) {
+            silent = port.menu.muted;
+            SDL_SetAudioStreamGain(audio.stream, silent ? 0.0f : 1.0f);
+        }
         if (port.menu.IsOpen()) {
             // The game's picture as it was, with the menu over it
             if (menuDirty) {
