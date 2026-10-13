@@ -31,7 +31,7 @@ void Menu::Configure(bool withStates) {
     if (withStates) {
         config.groups.push_back({{recomp::MenuRow::Save}, {recomp::MenuRow::Load}, {recomp::MenuRow::Slot}});
     }
-    config.groups.push_back({{recomp::MenuRow::Pages}, {recomp::MenuRow::Speed}});
+    config.groups.push_back({{recomp::MenuRow::Pages}, {recomp::MenuRow::Speed}, {recomp::MenuRow::Mute}});
     if (withStates) {
         config.groups.back().push_back({recomp::MenuRow::Action, kSetResetPoint, "Set reset point",
                                         "Keeps the game as it is now as the point to practise from (F2)."});
@@ -46,7 +46,9 @@ void Menu::Configure(bool withStates) {
     config.setValue = [](size_t feature, int value) { satrecomp::SetFeature(satrecomp::TheGame().features[feature].name, value != 0); };
     config.speeds.assign(std::begin(kSpeedNames), std::end(kSpeedNames));
     config.speedDescription = "Left/Right: how fast the game runs (- and = keys). F4 stops it and F8 goes on a frame at a time.";
-    config.confirmName = "A, B or C";
+    config.muted = [this] { return muted; };
+    config.setMuted = [this](bool to) { muted = to; };
+    config.confirmName = "Enter or A";
     config.closeName = "Esc";
     m_menu.Configure(std::move(config));
 }
@@ -75,6 +77,10 @@ Menu::Action Menu::Buttons(uint16_t pressed) {
     if (pressed && !buttons && m_menu.IsOpen()) {
         m_menu.Note("");
     }
+    return Press(buttons);
+}
+
+Menu::Action Menu::Press(unsigned buttons) {
     const recomp::Menu::Chosen chosen = m_menu.Buttons(buttons);
     switch (chosen.kind) {
     case recomp::Menu::Chosen::Save: return Action::Save;
