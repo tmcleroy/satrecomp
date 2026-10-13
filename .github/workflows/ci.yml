@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Tommy McLeroy. Part of satrecomp: https://github.com/tmcleroy/satrecomp
+# Checks every push and pull request without a game: nothing from a game can be in the repository.
+# It audits the files (tools/audit.sh) and builds, on macOS, Linux and Windows, the program with no
+# translated code (the machine, the interpreters, the renderer) and the launcher for the stand-in
+# game in example/, starts both, and tries tools/sync-toolkit.sh (tools/ci_smoke.sh).
+# The checks that play a game need its disc: they are run from the game's repository.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  SDL_VERSION: 3.4.16
+  SDL_SHA256: 7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/audit.sh
+      - run: tools/sync-common.sh --check
+
+  build-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build zlib1g-dev libx11-dev libxext-dev libxrandr-dev \
+            libxcursor-dev libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols \
+            libdecor-0-dev libegl-dev libgl-dev libvulkan-dev libpulse-dev libasound2-dev libudev-dev libdbus-1-dev \
+            libpipewire-0.3-dev
+      - name: Packages (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja sdl3
+      - name: SDL 3 (Linux, cached)
+        if: runner.os == 'Linux'
+        id: sdl
+        uses: actions/cache@v4
+        with:
+          path: ~/sdl3
+          key: sdl3-${{ env.SDL_VERSION }}-${{ matrix.os }}
+      - name: SDL 3 (Linux, built)
+        if: runner.os == 'Linux' && steps.sdl.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o sdl3.tar.gz "https://github.com/libsdl-org/SDL/releases/download/release-$SDL_VERSION/SDL3-$SDL_VERSION.tar.gz"
+          echo "$SDL_SHA256  sdl3.tar.gz" | sha256sum -c -
+          tar -xzf sdl3.tar.gz
+          cmake -S "SDL3-$SDL_VERSION" -B sdl3-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+            -DSDL_TEST_LIBRARY=OFF -DCMAKE_INSTALL_PREFIX="$HOME/sdl3" -DCMAKE_INSTALL_LIBDIR=lib
+          cmake --build sdl3-build
+          cmake --install sdl3-build
+      - name: Build the program (no translated code) and the launcher, for the stand-in game
+        run: |
+          export CMAKE_PREFIX_PATH="$HOME/sdl3"
+          make example
+      - name: Start them
+        run: tools/ci_smoke.sh
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            make git mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-python
+            mingw-w64-x86_64-sdl3 mingw-w64-x86_64-zlib
+      - name: Build the program (no translated code) and the launcher, for the stand-in game
+        run: make example
+      - name: Start them
+        run: tools/ci_smoke.sh

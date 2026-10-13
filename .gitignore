@@ -1,0 +1,6 @@
+build/
+work/
+__pycache__/
+.DS_Store
+# the reference emulator, fetched by make setup for development only
+third_party/

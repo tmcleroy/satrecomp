@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A problem with a game
+    url: https://github.com/tmcleroy/satrecomp#how-a-game-uses-it
+    about: A bug you meet while playing belongs in that game's repository. This project can't help you find game files; issues asking for them are closed.
