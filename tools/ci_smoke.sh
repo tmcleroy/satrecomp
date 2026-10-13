@@ -25,6 +25,7 @@ mkdir -p "$GAME_REPO/games/example"
 cd "$GAME_REPO"
 SATRECOMP="$ROOT" "$ROOT/tools/sync-toolkit.sh" > /dev/null
 satrecomp/tools/sync-toolkit.sh --check > /dev/null
+satrecomp/tools/sync-common.sh --check > /dev/null
 [ -f satrecomp/build.mk ] && [ ! -e satrecomp/example ] && [ ! -e satrecomp/.github ] || { echo "the copy is not what a game needs"; exit 1; }
 mkdir -p satrecomp/third_party/Ymir satrecomp/tools/__pycache__
 touch satrecomp/third_party/Ymir/file satrecomp/tools/__pycache__/file.pyc
