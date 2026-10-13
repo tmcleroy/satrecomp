@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-10-13)
+
 - recomp-common 0.4.0: the launcher works with a gamepad, or the arrow keys, alone, and has a
   "Muted" switch (the game is started with `--mute`).
 - The in-game menu's buttons are the same whatever the game's are set to: the arrows, the d-pad and
