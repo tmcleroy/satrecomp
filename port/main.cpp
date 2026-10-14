@@ -23,6 +23,7 @@
 
 #include "game_info.h" // generated from games/<id>/game.cfg
 
+#include <algorithm>
 #include <cstdlib>
 #include <map>
 #include <array>
@@ -94,6 +95,19 @@ bool Movie::Save(const std::string &path) const {
     }
     fclose(f);
     return true;
+}
+
+// The port's own features, beside the game's: in the launcher's list (but for widescreen, whose switch is the
+// launcher's own) and the menu, as the game's are
+static void RegisterPortFeatures() {
+    satrecomp::Game &game = satrecomp::TheGame();
+    game.features.push_back({"run_ahead", "Game", "Run-ahead",
+                             "Shows the game a frame or two further on than it is, so that what you press is seen sooner (input lag "
+                             "taken away). The game runs exactly as without it; it takes two or three times the processor.",
+                             0, {"Off", "1 frame", "2 frames"}});
+    game.features.push_back({"widescreen", "Display", "Widescreen",
+                             "16:9: fights show more at the sides. The launcher's switch changes with it. Needs high resolution.",
+                             satrecomp::kFeatureFirstPage});
 }
 
 static bool ReadFile(const std::string &path, std::vector<uint8_t> &out) {
@@ -407,7 +421,9 @@ bool Port::Init() {
     saturn = std::make_unique<satrecomp::Machine>();
     auto &sat = *saturn;
     satrecomp::RegisterGame(); // (the game's own sources: lifted routines, features, widescreen layout)
-    satrecomp::LoadFeatures(opt.settingsPath, opt.features);
+    RegisterPortFeatures();
+    // (widescreen as the launcher said, by --widescreen, whatever settings.ini has: launcher.ini keeps it)
+    satrecomp::LoadFeatures(opt.settingsPath, opt.features + (opt.aspect > 1.34f ? ",widescreen" : ",-widescreen"));
 
     // The disc's files, for starting it and for the game's native file loading
     if (!discFiles.Open(opt.discPath)) {
@@ -483,13 +499,8 @@ bool Port::Init() {
         }
     }
     if (gpu) {
-        // Widescreen: so many more of the VDP1's pixels at each side (its 352 are a 4:3 picture's)
-        const uint32_t extra = opt.aspect > 1.34f ? static_cast<uint32_t>((352.0f * opt.aspect * 0.75f - 352.0f) / 2.0f + 0.5f) : 0;
-        satrecomp::SetPictureAspect(static_cast<float>(352 + 2 * extra) / 352.0f * 4.0f / 3.0f);
-        gpu->SetAspect(extra ? (352.0f + 2.0f * extra) / 352.0f * 4.0f / 3.0f : 4.0f / 3.0f);
         gpu->SetScale(opt.internalScale);
-        gpu->SetOutputSize(opt.outputWidth ? opt.outputWidth : 704 + 4 * extra, opt.outputHeight);
-        videoRenderer->SetWidescreen(extra);
+        ApplyWidescreen(opt.aspect > 1.34f);
         {
             std::vector<satrecomp::video::Renderer::WideSplit> splits;
             for (const satrecomp::WideSplit &split : satrecomp::TheGame().wideSplits) {
@@ -519,11 +530,19 @@ bool Port::Init() {
         });
     } else {
         videoRenderer->SetMode(Mode::Software, onFrame);
+        // (no widescreen in software: its row would do nothing)
+        auto &features = satrecomp::TheGame().features;
+        features.erase(std::remove_if(features.begin(), features.end(), [](const satrecomp::Feature &f) { return !strcmp(f.name, "widescreen"); }),
+                       features.end());
     }
 
     // Sound: the chip's samples, with CD music the port plays itself (runtime/music.h) at its CD audio input
     sat.Sound().cdAudioSource = &satrecomp::music::Next;
     sat.Sound().onSample = [this](int16_t l, int16_t r) {
+        // (frames run ahead are taken back: their sound is not heard, and the hash is put back with the state)
+        if (satrecomp::RunningAhead()) {
+            return;
+        }
         // (a running hash of the sound output, part of the state hash)
         audioHash = (audioHash ^ static_cast<uint16_t>(l)) * 0x100000001b3ull;
         audioHash = (audioHash ^ static_cast<uint16_t>(r)) * 0x100000001b3ull;
@@ -689,6 +708,10 @@ void Port::RunFrame() {
             }
         }
     }
+    // (widescreen switched in the menu: from this frame on)
+    if (gpu && satrecomp::FeatureOn("widescreen") != wideShown) {
+        ApplyWidescreen(!wideShown);
+    }
     saturn->RunFrame();
     frame++;
     if (satrecomp::TheGame().frame) {
@@ -730,6 +753,8 @@ void Port::RunFrame() {
         fprintf(hashFile, "%llu %016llx\n", static_cast<unsigned long long>(frame),
                 static_cast<unsigned long long>(StateHash()));
     }
+    // (after the pictures and the hash: those are of the frame itself)
+    RunAhead();
 }
 
 void Port::MenuAct(Menu::Action action) {
@@ -790,6 +815,61 @@ namespace {
         ar.Mark(0x454E4453);
     }
 } // namespace
+
+void Port::RunAhead() {
+    const int ahead = satrecomp::FeatureValue("run_ahead");
+    // (nor while going on a frame at a time or slowed: there the frame shown is the frame)
+    if (ahead <= 0 || stepping || menu.Speed() != 100 || !videoRenderer ||
+        (satrecomp::TheGame().noRunAhead && satrecomp::TheGame().noRunAhead())) {
+        return;
+    }
+    // What the frames run ahead change: what a save state holds; the renderer whole (a state leaves out what
+    // goes from one frame to the next there, the frame being put together and the layers' pictures); the
+    // GPU's copies of the VDP1's framebuffers; and what the dispatcher keeps about where the CPUs are
+    static std::vector<uint8_t> kept;
+    kept.clear();
+    {
+        satrecomp::Archive ar(kept, true);
+        StateOf(*this, ar);
+    }
+    satrecomp::video::Renderer renderer = *videoRenderer;
+    satrecomp::KeepDispatcher();
+    if (gpu) {
+        gpu->KeepSprites();
+    }
+    satrecomp::SetRunningAhead(true); // (no sound comes out of them: Init, onSample)
+    for (int n = 0; n < ahead; n++) {
+        saturn->RunFrame();
+        if (satrecomp::TheGame().frame) {
+            satrecomp::TheGame().frame();
+        }
+    }
+    UpdateHud(); // (the readout of the frame shown)
+    {
+        satrecomp::Archive ar(kept, false);
+        StateOf(*this, ar);
+    }
+    *videoRenderer = std::move(renderer);
+    satrecomp::PutDispatcherBack();
+    if (gpu) {
+        gpu->PutSpritesBack();
+    }
+    satrecomp::SetRunningAhead(false);
+}
+
+void Port::ApplyWidescreen(bool on) {
+    wideShown = on;
+    if (!gpu || !videoRenderer) {
+        return;
+    }
+    // So many more of the VDP1's pixels at each side (its 352 are a 4:3 picture's): 16:9, or the shape --aspect asked
+    const float aspect = opt.aspect > 1.34f ? opt.aspect : 16.0f / 9.0f;
+    const uint32_t extra = on ? static_cast<uint32_t>((352.0f * aspect * 0.75f - 352.0f) / 2.0f + 0.5f) : 0;
+    satrecomp::SetPictureAspect(static_cast<float>(352 + 2 * extra) / 352.0f * 4.0f / 3.0f);
+    gpu->SetAspect(extra ? (352.0f + 2.0f * extra) / 352.0f * 4.0f / 3.0f : 4.0f / 3.0f);
+    gpu->SetOutputSize(opt.outputWidth ? opt.outputWidth : 704 + 4 * extra, opt.outputHeight);
+    videoRenderer->SetWidescreen(extra);
+}
 
 void Port::SaveStateData(std::vector<uint8_t> &data) {
     data.clear();
@@ -864,6 +944,10 @@ bool Port::LoadStateData(const std::vector<uint8_t> &stored, std::string &error)
     return true;
 }
 #else
+void Port::RunAhead() {}
+void Port::ApplyWidescreen(bool on) {
+    wideShown = on;
+}
 bool Port::SaveState(const std::string &, std::string &error) {
     error = "The reference build has no save states.";
     return false;
@@ -1135,7 +1219,12 @@ int main(int argc, char **argv) {
         } else if (a == "--list-features") {
             // For the launcher: one optional feature per line (recomp-common/settings.h)
             satrecomp::RegisterGame();
-            fputs(recomp::FeatureListText(satrecomp::FeatureList()).c_str(), stdout);
+            port::RegisterPortFeatures();
+            // (not those whose switch is on the launcher's first page: game.h, kFeatureFirstPage)
+            std::vector<recomp::FeatureInfo> list = satrecomp::FeatureList();
+            list.erase(std::remove_if(list.begin(), list.end(), [](const recomp::FeatureInfo &f) { return f.flags & satrecomp::kFeatureFirstPage; }),
+                       list.end());
+            fputs(recomp::FeatureListText(list).c_str(), stdout);
             return 0;
         } else if (a == "--menu") {
             p.menuTest = next();

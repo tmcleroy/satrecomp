@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Run-ahead (the port's `run_ahead` feature: off, 1 or 2 frames): the frames after each are run and
+  shown, then the game is put back, so a press is seen a frame or two sooner and the game runs exactly
+  as without it (state hashes the same frame for frame). `RunningAhead()` for a game's sources;
+  `Game::noRunAhead`.
+- Features with choices (`Feature::choices`, `FeatureValue`, `SetFeatureValue`; `--features NAME=N`).
+- Training aids work only in a training session: a game marks them (`kFeatureTraining`,
+  `TrainingAids`) and says when one is on (`Game::inTraining`); elsewhere they read as off, while the
+  menu shows and `settings.ini` keeps the player's choice (`FeatureSetting`).
+- Widescreen can be switched in the in-game menu (Display page; GPU renderer): the launcher's switch in
+  `launcher.ini` follows it (`kFeatureFirstPage`), and the window takes the picture's shape.
+
 ## 0.2.0 (2026-10-13)
 
 - recomp-common 0.4.0: the launcher works with a gamepad, or the arrow keys, alone, and has a
