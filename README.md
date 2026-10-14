@@ -135,7 +135,7 @@ it is needed to build, check or play a game.
 | [recomp-common](https://github.com/tmcleroy/recomp-common) | The in-game menu, settings rules and launcher this toolkit and cps2recomp share |
 | [Vampire Savior Recomp](https://github.com/tmcleroy/vampire-savior-recomp) | A native port of *Vampire Savior* (CPS-2), made with cps2recomp |
 | [Muscle March Recomp](https://github.com/tmcleroy/muscle-march-recomp) | A native port of *Muscle March* (WiiWare), by the same author |
-| [doaxvb-re](https://github.com/tmcleroy/doaxvb-re) | A native Windows port of *Dead or Alive Xtreme Beach Volleyball* (Xbox), by the same author |
+| [doaxvb-re](https://github.com/NoRain211/doaxvb-re) | A native Windows port of *Dead or Alive Xtreme Beach Volleyball* (Xbox), by NoRain211; not made with these toolkits |
 
 ## Contributing
 
