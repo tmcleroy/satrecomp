@@ -16,7 +16,7 @@ KIND=${3:-native}
 if [ "$KIND" = exact ]; then REF=pure; NEW=recomp; else REF=free; NEW=native; fi
 WORK=work/$GAME
 PORT=${B_REF:-build/$GAME-ref}/$GAME-ref
-DISC=${DISC:-$(ls disc/*.cue disc/*.chd disc/*.iso 2>/dev/null | head -1)}
+DISC=${DISC:-$(ls disc/*.cue disc/*.iso 2>/dev/null | head -1)}
 # The cycle-exact pair runs through a BIOS image (the unmodified interpreter cannot use the native BIOS)
 if [ "$KIND" = exact ]; then BIOS=${BIOS:-$(ls bios/*.bin 2>/dev/null | head -1)}; fi
 TAG=$(basename "${MOVIE:-boot}" .txt)

@@ -14,7 +14,7 @@ FRAMES=${1:-3000}
 MOVIE=$2
 WORK=work/$GAME
 PORT=${B:-build/$GAME}/$GAME
-DISC=${DISC:-$(ls disc/*.cue disc/*.chd disc/*.iso 2>/dev/null | head -1)}
+DISC=${DISC:-$(ls disc/*.cue disc/*.iso 2>/dev/null | head -1)}
 TAG=$(basename "${MOVIE:-boot}" .txt)
 mkdir -p "$WORK/check"
 run() { # name, then environment settings

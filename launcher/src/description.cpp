@@ -68,8 +68,8 @@ bool read_disc_header(const std::string& file, char header[256]) {
     return false;
 }
 
-// A disc image: .cue (with its .bin files), .iso, .chd, .ccd or .mds. Reads the disc's header from .cue and
-// .iso images to tell which game and release it is. The launcher only ever reads it: never copies, moves or
+// A disc image: .cue (with its .bin files) or .iso, the two the port reads (port/disc_image.cpp). Reads the
+// disc's header to tell which game and release it is. The launcher only ever reads it: never copies, moves or
 // changes it.
 launcher::FileCheck check_disc(const std::string& path) {
     using Result = launcher::FileCheck::Result;
@@ -91,12 +91,12 @@ launcher::FileCheck check_disc(const std::string& path) {
     } else if (ext == ".iso") {
         data = path;
     } else if (ext == ".chd" || ext == ".ccd" || ext == ".mds") {
-        check.result = Result::Usable;
-        check.message = "A disc image (this format isn't checked here; the game will say if it can't use it).";
+        check.result = Result::NotUsable;
+        check.message = "This kind of disc image can't be read yet. Use a .cue file with its .bin files, or an .iso.";
         return check;
     } else {
         check.result = Result::NotUsable;
-        check.message = "This isn't a disc image. Choose the .cue file (or a .chd or .iso).";
+        check.message = "This isn't a disc image. Choose the .cue file (or an .iso).";
         return check;
     }
     char header[256];
@@ -157,7 +157,7 @@ const launcher::Description& launcher::describe() {
         d.file_intro = "Choose your own copy of the game (a disc image). It stays where it is: the launcher only reads it.";
         d.file_empty = "No game disc chosen. Drop its .cue file on this window or choose it.";
         d.file_not_set_up = "The game isn't set up yet. Open the launcher (without --play) once to choose your game disc.";
-        d.file_filter = {"Saturn disc image", "cue;chd;iso;ccd;mds"};
+        d.file_filter = {"Saturn disc image", "cue;iso"};
         d.file_key = "disc";
         d.check = check_disc;
         d.arguments = arguments;

@@ -12,6 +12,8 @@
   menu shows and `settings.ini` keeps the player's choice (`FeatureSetting`).
 - Widescreen can be switched in the in-game menu (Display page; GPU renderer): the launcher's switch in
   `launcher.ini` follows it (`kFeatureFirstPage`), and the window takes the picture's shape.
+- Fixed: the launcher took `.chd`, `.ccd` and `.mds` images, which the port cannot read (it reads a
+  `.cue` with its `.bin` files, or an `.iso`); it now says so and asks for one of those.
 
 ## 0.2.0 (2026-10-13)
 
