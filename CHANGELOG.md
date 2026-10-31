@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The Display page, for every game: **Scaling** (sharp, whole pixels, smooth), **Picture shape** (4:3, square
+  pixels, fill), **Window size** (2x to 6x) and **Shader**: the picture through one of RetroArch's slang presets
+  (CRT, CRT Lottes, CRT Royale, CRT Guest, CRT Light, four kinds of scanlines, xBRZ, ScaleFX, or your own) by
+  librashader, at the Saturn's own resolution (`port/shading.h`, `tools/librashader.sh`, `tools/shaders.py`).
+- A game's combined buttons (`combos` in game.cfg): several Saturn buttons at once, on the Controllers page.
+- `Look()`: the right stick and I, J, K, L, U, O, for a game's free camera.
 - The launcher shows the game's version (the game repository's `VERSION`) and, with `update_repo =
   owner/name` in `game.cfg`, updates itself from that repository's releases (recomp-common's updater:
   a release carries an `update-<system>.txt` manifest beside each download). Off unless a game names one.

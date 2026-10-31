@@ -283,3 +283,43 @@ renderer; with the GPU renderer as one picture of at most 720 lines that the GPU
 The launcher's switch (`--widescreen`), or the menu's Display page while playing (above). See docs/VIDEO.md. What of a game's 2D display belongs at the picture's edges is the game's knowledge too
 (`Game::wideSplits`; Fighting Vipers: `games/fighting_vipers/src/widescreen.cpp`, the gauges and names move
 out to the edges, the timer and messages stay in the middle).
+
+## The Display page
+
+How the picture is put in the window (`port/main.cpp` registers these for every game; the first choice of each is
+how the port always drew it):
+
+- **Scaling** (`display_scaling`): Sharp, as large as fits; Whole pixels, as tall as a whole number of the Saturn's
+  lines fits (a field's, for an interlaced picture), with a border round it; Smooth, with high resolution off the
+  Saturn's picture drawn at its own size times the fixed resolution and softened up. `FitPicture` and
+  `Gpu::SetFit` in `video/gpu.h`; the software renderer fits its picture the same way.
+- **Picture shape** (`display_shape`): 4:3 (16:9 in widescreen), square pixels (352 x 224 is 11:7), or the whole
+  window.
+- **Window size** (`window_size`): 3x 240 lines, or 2x to 6x (`--scale` still wins).
+- **Shader** (`display_shader`): the picture through one of RetroArch's slang presets, by
+  [librashader](https://github.com/SnowflakePowered/librashader) (`port/shading.h`, the same code as cps2recomp's).
+  librashader is a library beside the game (`librashader.dylib` in a macOS app's Frameworks, `.so` and `.dll`
+  beside the program), opened only when a shader is chosen; the presets are in `shaders/` beside the program (in a
+  macOS app, Resources). `tools/librashader.sh` builds both into the game repository's `build/deps` (Rust; the
+  release scripts call it); `SATRECOMP_SHADERS=folder` points at other presets and `--shader FILE` takes one
+  preset whatever the page says. A shaded window is an OpenGL window: the GPU draws the picture without a window
+  at the Saturn's own size (`Gpu::SetNative`), reads it back with the readout over it, and librashader draws it to
+  the window; the menu goes over it unshaded. Switching a shader on or off in the menu makes the window again.
+  Without a shader nothing is read back and nothing changes.
+
+`SATRECOMP_WINDOW_KEYS` takes `FEATURE=name=value` too (as the menu would set it), and `SHOT=` of a shaded window
+is what the preset drew.
+
+## Combined buttons
+
+A game's `game.cfg` can name buttons pressed together (`combos = bc Punch + kick | abc Guard + punch + kick`: the
+Saturn buttons run together, then a title). They are actions of their own on the launcher's Controllers page and
+in `settings.ini` (`port/bindings.h`, `ParseCombos`), with no key or button until the player gives them one; held,
+they press each of their buttons. The launcher and the game read them from the same `game.cfg`.
+
+## The look controls (a game's free camera)
+
+The window fills in `Look()` (`runtime/game.h`) every frame: a gamepad's right stick, and the keys I, J, K, L,
+U and O unless a player gave one to the game. Nothing else reads them, so a game's free camera can use them while
+the game gets its input as always (Fighting Vipers: `games/fighting_vipers/src/camera.cpp`).
+
