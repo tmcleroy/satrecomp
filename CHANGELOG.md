@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The launcher shows the game's version (the game repository's `VERSION`) and, with `update_repo =
+  owner/name` in `game.cfg`, updates itself from that repository's releases (recomp-common's updater:
+  a release carries an `update-<system>.txt` manifest beside each download). Off unless a game names one.
 - Fixed with recomp-common 0.5's menu: until the in-game menu was first opened, its speed was read from
   before the start of the port's list of speeds (the shared menu keeps -1 for "not chosen yet"), so
   run-ahead stayed off and the window's pacing and speed note were wrong. It is full speed now.
