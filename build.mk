@@ -145,7 +145,8 @@ launcher: port
 	  -DGAME_NAME="$(shell $(CFG) name $(GAME))" -DGAME_EXE=$(GAME) -DDISC_NAME="$(shell $(CFG) disc_name $(GAME))" \
 	  -DDISC_PRODUCT="$(shell $(CFG) disc_product $(GAME))" -DDISC_VERSION="$(shell $(CFG) disc_version $(GAME))" \
 	  -DAPP_ID=$(shell $(CFG) app_id $(GAME)) -DHOME_ENV=$(shell echo $(GAME) | tr a-z A-Z)_HOME \
-	  -DDISCLAIMER="$(shell $(CFG) disclaimer $(GAME))" > /dev/null
+	  -DDISCLAIMER="$(shell $(CFG) disclaimer $(GAME))" -DGAME_VERSION="$(shell cat VERSION 2>/dev/null)" \
+	  -DUPDATE_REPO="$(shell $(CFG) update_repo $(GAME))" > /dev/null
 	@cmake --build $(B)/launcher
 	@echo "built $(B)/$(GAME)-launcher"
 
