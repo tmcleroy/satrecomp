@@ -32,5 +32,14 @@ if(GAME_VERSION)
 endif()
 include(../recomp-common/launcher/launcher.cmake)
 
+# (the game's combined buttons, game.cfg's `combos`: on the Controllers page as the game reads them, port/bindings.h)
+set(GAME_COMBOS "")
+set(GAME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../games/${GAME_EXE}" CACHE PATH "The game's directory (game.cfg)")
+set(GAME_CFG "${GAME_DIR}/game.cfg")
+if (EXISTS "${GAME_CFG}")
+    file(STRINGS "${GAME_CFG}" GAME_COMBOS REGEX "^combos[ \t]*=")
+    string(REGEX REPLACE "^combos[ \t]*=[ \t]*" "" GAME_COMBOS "${GAME_COMBOS}")
+endif ()
 target_compile_definitions(launcher PRIVATE
-    LAUNCHER_DISC_NAME="${DISC_NAME}" LAUNCHER_DISC_PRODUCT="${DISC_PRODUCT}" LAUNCHER_DISC_VERSION="${DISC_VERSION}")
+    LAUNCHER_DISC_NAME="${DISC_NAME}" LAUNCHER_DISC_PRODUCT="${DISC_PRODUCT}" LAUNCHER_DISC_VERSION="${DISC_VERSION}"
+    "SATRECOMP_COMBOS=\"${GAME_COMBOS}\"")

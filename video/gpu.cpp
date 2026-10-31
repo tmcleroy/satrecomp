@@ -3,6 +3,7 @@
 #include "gpu.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -774,6 +775,49 @@ bool Gpu::ReadShown(std::vector<uint32_t> &pixels) {
     return Read(pixels);
 }
 
+SDL_FRect FitPicture(int width, int height, float columns, float lines, float aspect, int scaling, int shape) {
+    // The picture's shape: its own; with square pixels, as many times wider than tall as it has columns for
+    // lines (352 x 224 is 11:7; interlaced 704 x 448 the same); or the window's
+    const float window = height > 0 ? static_cast<float>(width) / static_cast<float>(height) : aspect;
+    const float ratio = shape == 1 ? columns / lines : shape == 2 ? window : aspect;
+    SDL_FRect where{};
+    if (scaling == 1) {
+        // (as many of the window's rows to one of the picture's as fits with the picture's width too)
+        const int rows = static_cast<int>(lines > 300.0f ? lines / 2.0f : lines);
+        for (int by = height / std::max(rows, 1); by >= 1; by--) {
+            where.h = static_cast<float>(by * rows);
+            where.w = shape == 2 ? static_cast<float>(width) : std::round(where.h * ratio);
+            if (where.w <= static_cast<float>(width)) {
+                where.x = std::floor((static_cast<float>(width) - where.w) / 2.0f);
+                where.y = std::floor((static_cast<float>(height) - where.h) / 2.0f);
+                return where;
+            }
+        }
+    }
+    where.w = std::min(static_cast<float>(width), std::round(static_cast<float>(height) * ratio));
+    where.h = shape == 2 ? static_cast<float>(height) : std::round(where.w / ratio);
+    where.x = std::floor((static_cast<float>(width) - where.w) / 2.0f);
+    where.y = std::floor((static_cast<float>(height) - where.h) / 2.0f);
+    return where;
+}
+
+SDL_FRect Gpu::Fit(int width, int height) const {
+    return FitPicture(width, height, m_layerWidth ? static_cast<float>(m_layerWidth) : 352.0f,
+                      m_layerHeight ? static_cast<float>(m_layerHeight) : 224.0f, m_aspect, m_scaling, m_shape);
+}
+
+void Gpu::SizeFor(int width, int height) {
+    if (m_native || (m_scaling == 2 && m_fixedScale)) {
+        // (the Saturn's own size, times the fixed resolution's when smoothed up: a shader takes it as it is)
+        const uint32_t times = m_native ? 1 : m_fixedScale;
+        const uint32_t lines = m_layerHeight ? m_layerHeight : 224;
+        SetOutputSize(static_cast<uint32_t>(static_cast<float>(lines) * m_aspect + 0.5f) * times, lines * times);
+        return;
+    }
+    const SDL_FRect where = Fit(width, height);
+    SetOutputSize(static_cast<uint32_t>(where.w), static_cast<uint32_t>(where.h));
+}
+
 void Gpu::Present(SDL_Window *window) {
     if (!(m_overlayShown && m_overlay)) {
         ApplyHud();
@@ -785,13 +829,9 @@ void Gpu::Present(SDL_Window *window) {
         SDL_SubmitGPUCommandBuffer(cmd);
         return;
     }
-    // As large as fits at the picture's shape (4:3, or wider), black around it
-    uint32_t w = width, h = static_cast<uint32_t>(width / m_aspect + 0.5f);
-    if (h > height) {
-        h = height;
-        w = static_cast<uint32_t>(height * m_aspect + 0.5f);
-    }
-    SetOutputSize(w, h);
+    // As SetFit says (as large as fits at the picture's shape, by default), black around it
+    const SDL_FRect where = Fit(static_cast<int>(width), static_cast<int>(height));
+    SizeFor(static_cast<int>(width), static_cast<int>(height));
     {
         SDL_GPUColorTargetInfo target{};
         target.texture = swapchain;
@@ -807,10 +847,10 @@ void Gpu::Present(SDL_Window *window) {
         blit.source.w = overlay ? m_overlayWidth : m_outputWidth;
         blit.source.h = overlay ? m_overlayHeight : m_outputHeight;
         blit.destination.texture = swapchain;
-        blit.destination.x = (width - w) / 2;
-        blit.destination.y = (height - h) / 2;
-        blit.destination.w = w;
-        blit.destination.h = h;
+        blit.destination.x = static_cast<Uint32>(where.x);
+        blit.destination.y = static_cast<Uint32>(where.y);
+        blit.destination.w = static_cast<Uint32>(where.w);
+        blit.destination.h = static_cast<Uint32>(where.h);
         blit.load_op = SDL_GPU_LOADOP_LOAD;
         blit.filter = SDL_GPU_FILTER_LINEAR;
         SDL_BlitGPUTexture(cmd, &blit);

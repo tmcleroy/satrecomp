@@ -14,6 +14,12 @@
 
 namespace satrecomp::video {
 
+// Where in a `width` x `height` window a picture `columns` x `lines` goes (the Display page, Gpu::SetFit):
+// `aspect` its own shape (4:3, or wider in widescreen); `scaling` 0 as large as fits, 1 as tall as a whole
+// number of its lines (a field's, for an interlaced picture), 2 as 0; `shape` 0 its own, 1 square pixels, 2 the
+// whole window
+SDL_FRect FitPicture(int width, int height, float columns, float lines, float aspect, int scaling, int shape);
+
 class Gpu {
 public:
     bool Init(SDL_GPUDevice *device);
@@ -53,7 +59,31 @@ public:
     bool Read(std::vector<uint32_t> &pixels);
     // The VDP1 framebuffer on display as drawn here (its 16-bit values), for tests
     bool ReadSprites(std::vector<uint16_t> &words, uint32_t &width, uint32_t &height);
-    // Shows the picture in a window, as large as fits at 4:3
+    // How Present fits the picture to the window (the Display page, port/present.h): `scaling` 0 sharp (as large
+    // as fits, drawn at that size), 1 whole pixels (as tall as a whole number of the picture's lines fits), 2
+    // smooth (with a fixed resolution: drawn at it and softened up to the size); `shape` 0 the picture's own
+    // (4:3, or wider in widescreen), 1 square pixels, 2 the whole window
+    void SetFit(int scaling, int shape) {
+        m_scaling = scaling;
+        m_shape = shape;
+    }
+    // The picture drawn at the Saturn's own size (its lines and columns, wider in widescreen), whatever the
+    // window: for a shader, which draws it up to the window itself (port/shading.h)
+    void SetNative(bool native) {
+        m_native = native;
+    }
+    // The picture's own size: the frame's columns and lines (0 before the first frame)
+    uint32_t PictureWidth() const {
+        return m_layerWidth;
+    }
+    uint32_t PictureHeight() const {
+        return m_layerHeight;
+    }
+    // Where in a window of that size the picture goes, as SetFit says
+    SDL_FRect Fit(int width, int height) const;
+    // Sizes the output for the next frame as Present will show it in a window of that size (SetFit, SetNative)
+    void SizeFor(int width, int height);
+    // Shows the picture in a window, as SetFit says
     void Present(SDL_Window *window);
     // A picture to show in place of the one drawn (the game's with a menu over it, while the game stands
     // still): 32-bit pixels, red in the low byte. ClearOverlay: the drawn picture again.
@@ -102,6 +132,8 @@ private:
     uint32_t m_layerWidth = 0, m_layerHeight = 0;
     uint32_t m_outputWidth = 0, m_outputHeight = 0, m_wantedWidth = 640, m_wantedHeight = 480;
     float m_aspect = 4.0f / 3.0f;
+    int m_scaling = 0, m_shape = 0;
+    bool m_native = false;
     SDL_GPUTexture *m_overlay = nullptr;
     uint32_t m_overlayWidth = 0, m_overlayHeight = 0;
     bool m_overlayShown = false;

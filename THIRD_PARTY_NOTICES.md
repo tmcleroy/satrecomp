@@ -38,6 +38,12 @@ follow it. recomp-common's own `THIRD_PARTY_NOTICES.md` has the table, file by f
 The 5x7 dot-matrix font of the menu (`recomp-common/text.h`) is the generic character set of LCD
 and LED displays, typed in for recomp-common.
 
+### librashader's C header (MIT)
+
+`port/librashader.h` is the C header of [librashader](https://github.com/SnowflakePowered/librashader)
+0.12.1 (Copyright (c) chyyran and its contributors), unchanged, under its own MIT license (stated at its
+top): the functions `port/shading.cpp` takes from the library.
+
 ## Downloaded at build time
 
 None of these is stored in this repository.
@@ -47,6 +53,8 @@ None of these is stored in this repository.
 | [SDL 3](https://libsdl.org) | zlib. Copyright (C) 1997-2026 Sam Lantinga | Window, input, audio, GPU (game and launcher); the system's where there is one |
 | [Dear ImGui](https://github.com/ocornut/imgui) 1.92.9b | MIT. Copyright (c) 2014-2026 Omar Cornut | The launcher's interface, compiled into the launcher |
 | [Inter](https://rsms.me/inter/) 4.1 | SIL Open Font License 1.1. Copyright (c) 2016 The Inter Project Authors | The launcher's font, compiled into the launcher |
+| [librashader](https://github.com/SnowflakePowered/librashader) 0.12.1 | MPL-2.0 or GPL-3.0 (used here under GPL-3.0). Copyright (c) chyyran and its contributors | The Display page's shaders (`port/shading.h`): a library beside the game (`librashader.dylib`, `.so`, `.dll`), built from source by `tools/librashader.sh` with the Rust crates its `Cargo.lock` names; opened only when a shader is chosen |
+| [slang-shaders](https://github.com/libretro/slang-shaders) (commit `2b0530b`) | Each file its own, stated at its top: crt-geom-mini (after cgwg's crt-geom), CRT Royale (TroggleMonkey), CRT Guest (guest(r), Dr. Venom) and zfast-crt, CRT Light (Greg Hogan) GPL-2.0-or-later; CRT Lottes (Timothy Lottes), scanline-fract (hunterk) and sharp-bilinear-scanlines (rsn8887) public domain; xBRZ (Hyllian, Zenju) and ScaleFX (Sp00kyFox) and the blur and gamma includes MIT; the stock pass (libretro), ossc (DariusG) and integer-scaling-scanlines with no notice, and crt-geom-mini's linearize pass none either | The presets the Display page's Shader names, with the files they use, in a `shaders` folder beside the game (`tools/shaders.py`) |
 | [zlib](https://zlib.net) | zlib. Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler | Screenshots (PNG); the system's |
 
 Each download is checked against its published SHA-256. A game that gives out built programs must
