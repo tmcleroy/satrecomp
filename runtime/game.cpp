@@ -5,8 +5,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 
 namespace satrecomp {
@@ -30,7 +32,9 @@ uint8_t *Ram(uint32_t address) {
 }
 
 namespace {
-    std::map<std::string, bool> g_on;
+    std::map<std::string, int> g_on;
+    std::set<std::string> g_aids; // the features marked kFeatureTraining (LoadFeatures)
+    bool g_runningAhead = false;
     std::string g_settingsPath;
 
     std::string Trim(const std::string &s) {
@@ -42,7 +46,8 @@ namespace {
 std::vector<recomp::FeatureInfo> FeatureList() {
     std::vector<recomp::FeatureInfo> list;
     for (const Feature &feature : TheGame().features) {
-        list.push_back({feature.name, feature.category, feature.title, feature.description, feature.flags, {}});
+        list.push_back({feature.name, feature.category, feature.title, feature.description, feature.flags,
+                        {feature.choices.begin(), feature.choices.end()}});
     }
     return list;
 }
@@ -58,37 +63,87 @@ std::string DataFilePath(const std::string &name) {
 void LoadFeatures(const std::string &settingsPath, const std::string &list) {
     g_settingsPath = settingsPath;
     g_on.clear();
+    g_aids.clear();
+    for (const Feature &feature : TheGame().features) {
+        if (feature.flags & kFeatureTraining) {
+            g_aids.insert(feature.name);
+        }
+    }
     // (the rules the launcher follows too: recomp-common/settings.h)
     recomp::Ini settings(settingsPath);
     settings.load();
     const std::vector<int> values = recomp::FeatureValues(settings, FeatureList());
     for (size_t i = 0; i < values.size(); i++) {
-        g_on[TheGame().features[i].name] = values[i] != 0;
+        g_on[TheGame().features[i].name] = values[i];
     }
     std::stringstream names(list);
     std::string name;
     while (std::getline(names, name, ',')) {
         name = Trim(name);
         if (!name.empty()) {
+            // (NAME, -NAME, or NAME=N for one of a feature's choices)
             const bool off = name[0] == '-';
-            g_on[off ? name.substr(1) : name] = !off;
+            const size_t equals = name.find('=');
+            if (equals != std::string::npos) {
+                g_on[name.substr(0, equals)] = atoi(name.c_str() + equals + 1);
+            } else {
+                g_on[off ? name.substr(1) : name] = off ? 0 : 1;
+            }
         }
     }
 }
 
 bool FeatureOn(const char *name) {
+    return FeatureValue(name) != 0;
+}
+
+int FeatureSetting(const char *name) {
     const auto it = g_on.find(name);
-    return it != g_on.end() && it->second;
+    return it == g_on.end() ? 0 : it->second;
+}
+
+int FeatureValue(const char *name) {
+    const auto it = g_on.find(name);
+    if (it == g_on.end() || it->second == 0) {
+        return 0;
+    }
+    // (a training aid, outside a training session: off)
+    if (TheGame().inTraining && g_aids.count(it->first) && !TheGame().inTraining()) {
+        return 0;
+    }
+    return it->second;
+}
+
+void TrainingAids(std::initializer_list<const char *> names) {
+    for (const char *name : names) {
+        for (Feature &feature : TheGame().features) {
+            if (!strcmp(feature.name, name)) {
+                feature.flags |= kFeatureTraining;
+                g_aids.insert(feature.name);
+            }
+        }
+    }
+}
+
+bool RunningAhead() {
+    return g_runningAhead;
+}
+void SetRunningAhead(bool on) {
+    g_runningAhead = on;
 }
 
 void SetFeature(const char *name, bool on) {
-    g_on[name] = on;
+    SetFeatureValue(name, on ? 1 : 0);
+}
+
+void SetFeatureValue(const char *name, int value) {
+    g_on[name] = value;
     // (one of a category's exclusive features at a time, as in the launcher)
     for (const Feature &changed : TheGame().features) {
-        if (on && (changed.flags & kFeatureExclusive) && !strcmp(changed.name, name)) {
+        if (value && (changed.flags & kFeatureExclusive) && !strcmp(changed.name, name)) {
             for (const Feature &other : TheGame().features) {
                 if ((other.flags & kFeatureExclusive) && !strcmp(other.category, changed.category) && strcmp(other.name, name)) {
-                    g_on[other.name] = false;
+                    g_on[other.name] = 0;
                 }
             }
         }
@@ -103,8 +158,21 @@ void SetFeature(const char *name, bool on) {
         if (features[i].name == name) {
             recomp::Ini settings(g_settingsPath);
             settings.load();
-            recomp::SetFeature(settings, features, i, on ? 1 : 0);
+            recomp::SetFeature(settings, features, i, value);
             settings.save();
+        }
+    }
+    // (a feature whose switch is on the launcher's first page: that switch too, in launcher.ini beside
+    // settings.ini, or the launcher would turn it back the next time the game is started)
+    for (const Feature &feature : TheGame().features) {
+        if ((feature.flags & kFeatureFirstPage) && !strcmp(feature.name, name)) {
+            const std::string launcherIni = (std::filesystem::path(g_settingsPath).parent_path() / "launcher.ini").string();
+            if (std::filesystem::exists(launcherIni)) {
+                recomp::Ini prefs(launcherIni);
+                prefs.load();
+                prefs.set("video", name, value ? "1" : "0");
+                prefs.save();
+            }
         }
     }
 }

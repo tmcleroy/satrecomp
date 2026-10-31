@@ -134,6 +134,16 @@ struct Port {
     bool Init();
     // Applies movie input for this frame, runs it, then writes screenshots and hashes as configured.
     void RunFrame();
+    // Run-ahead (the port's "run_ahead" feature: off, 1 or 2 frames): after the frame, the next ones are run
+    // on the controls as they are and their picture shown; then the game is put back as it was after the
+    // frame. So it goes on exactly as without it, and a press is seen a frame or two sooner. Not while the
+    // frontend goes on a frame at a time (`stepping`), nor slowed, nor when the game says not.
+    void RunAhead();
+    bool stepping = false;
+    // Widescreen switched while playing (the port's "widescreen" feature, which the menu changes): the
+    // picture's shape and how much more the renderer draws at the sides. GPU only.
+    void ApplyWidescreen(bool on);
+    bool wideShown = false;
     void Shutdown();
     void SaveShot(const std::string &path);
     // Save states: the whole game as it is between two frames, to a file and back. False (and why, in

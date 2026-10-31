@@ -38,7 +38,7 @@ YMIR := $(SR)/third_party/Ymir
 PORT := $(B)/$(GAME)
 export GAME B B_REF SR
 
-DISC ?= $(firstword $(wildcard disc/*.cue disc/*.chd disc/*.iso))
+DISC ?= $(firstword $(wildcard disc/*.cue disc/*.iso))
 # No BIOS image is needed: the game is started by satrecomp's own code (runtime/hle_bios.h). The reference
 # build can start through an image instead (BIOS=path; needed for 'make verify KIND=exact').
 BIOS ?=

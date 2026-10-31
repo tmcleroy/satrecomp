@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -17,17 +18,27 @@ namespace satrecomp {
 class Archive; // (state.h)
 
 // An optional feature. The launcher lists them (--list-features) and writes the player's choices to
-// settings.ini, section [features]; the in-game menu shows those in the category "Cheats".
+// settings.ini, section [features]; the in-game menu shows each on the page of its category.
 struct Feature {
     const char *name;        // as in settings.ini and --features
     const char *category;    // heading in the launcher
     const char *title;
     const char *description;
-    unsigned flags = 0;      // kFeatureEnhanced, kFeatureExclusive
+    unsigned flags = 0;      // kFeatureEnhanced, kFeatureExclusive, ...
+    // For a choice of several things rather than on or off: their names, the first meaning off
+    std::vector<const char *> choices = {};
 };
 enum : unsigned {
     kFeatureEnhanced = 2,  // on in the launcher's "Enhanced" preset
     kFeatureExclusive = 4, // only one of its category at a time
+    // Its switch is on the launcher's first page (the Display card), not on the Features page: the launcher
+    // says at every start whether it is on, by an argument of its own. The in-game menu still has it, and
+    // changing it there changes the launcher's switch too (launcher.ini), or the launcher would turn it back.
+    kFeatureFirstPage = 16,
+    // A training aid (the readouts, the dummy...): it works only while a training session is on
+    // (Game::inTraining); elsewhere it reads as off (FeatureOn, FeatureValue), though the menu and
+    // settings.ini keep it
+    kFeatureTraining = 32,
 };
 
 // Widescreen: part of a scroll screen that belongs at the picture's sides (video/renderer.h, WideSplit)
@@ -40,6 +51,12 @@ struct Game {
     std::vector<WideSplit> wideSplits;
     void (*frame)() = nullptr;                                     // after every frame the game ran
     void (*state)(Archive &ar) = nullptr;                          // the game sources' own state, for save states
+    // A training session is on (the game's own idea of one): the training aids (kFeatureTraining) work only
+    // then. Not given: they work everywhere.
+    bool (*inTraining)() = nullptr;
+    // Not to run ahead now (the port's run-ahead): a moment whose workings a save state does not wholly
+    // hold, so that frames run and taken back would change it. Not given: run-ahead whenever it is on.
+    bool (*noRunAhead)() = nullptr;
 };
 // Filled in by RegisterGame (lift.h)
 Game &TheGame();
@@ -54,6 +71,18 @@ void LoadFeatures(const std::string &settingsPath, const std::string &list);
 bool FeatureOn(const char *name);
 // Changes one and writes settings.ini as the launcher would (preset = custom, every feature's state)
 void SetFeature(const char *name, bool on);
+// For a feature with choices: which is chosen (0: the first, which is off), and choosing. (FeatureOn: not 0.)
+int FeatureValue(const char *name);
+void SetFeatureValue(const char *name, int value);
+// What the player has chosen for a feature, whether it works now or not (the menu shows this; FeatureValue
+// gives 0 for a training aid outside a training session)
+int FeatureSetting(const char *name);
+// The game's sources mark features of theirs as training aids (kFeatureTraining), by name
+void TrainingAids(std::initializer_list<const char *> names);
+// Run-ahead (the port's "run_ahead" feature) is running frames that will be taken back: the game's sources
+// skip what must happen once (writing a file, keeping what is not part of their save state)
+bool RunningAhead();
+void SetRunningAhead(bool on);
 // Where a game's sources may write a file of their own for the player (a table to read outside the game):
 // `name` in the folder settings.ini is in. Empty when the game was started without one.
 std::string DataFilePath(const std::string &name);

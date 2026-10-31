@@ -53,6 +53,10 @@ bool DumpDecodeTable(const std::string &path);
 // A save state was loaded: the CPUs are somewhere else now, so what the dispatcher keeps about where they
 // were (functions stopped or waiting for a call to come back, loops known to be waiting) is forgotten
 void StateLoaded();
+// Run-ahead (port/main.cpp): the same, kept before frames that will be taken back and put back after them in
+// place of forgetting it, so that the frames that follow run exactly as they would have without them
+void KeepDispatcher();
+void PutDispatcherBack();
 
 } // namespace satrecomp
 

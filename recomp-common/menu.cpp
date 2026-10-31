@@ -19,7 +19,7 @@ namespace {
 
 void Menu::Configure(MenuConfig config) {
     m_config = std::move(config);
-    m_speed = std::clamp(m_speed, 0, std::max(static_cast<int>(m_config.speeds.size()) - 1, 0));
+    m_speed = std::clamp(m_speed < 0 ? m_config.normalSpeed : m_speed, 0, std::max(static_cast<int>(m_config.speeds.size()) - 1, 0));
     if (m_open) {
         Fill();
     }
@@ -49,7 +49,8 @@ bool Menu::Exists(const std::string &page) const {
         return true;
     }
     if (std::any_of(m_config.features.begin(), m_config.features.end(), [&](const MenuFeature &f) { return f.category == page; }) ||
-        std::any_of(m_config.commands.begin(), m_config.commands.end(), [&](const MenuCommand &c) { return c.category == page; })) {
+        std::any_of(m_config.commands.begin(), m_config.commands.end(), [&](const MenuCommand &c) { return c.category == page; }) ||
+        std::any_of(m_config.pages.begin(), m_config.pages.end(), [&](const MenuPage &p) { return p.name == page && !p.rows.empty(); })) {
         return true;
     }
     // (or a page under it has: looked at one level down, which is what a page of pages needs, and cannot go
@@ -74,6 +75,14 @@ void Menu::Leave() {
     if (m_page.empty()) {
         m_left.clear();
     }
+    Fill();
+}
+
+// Into a page from the one shown, at its top
+void Menu::Enter(const std::string &page) {
+    m_left.push_back(m_selected);
+    m_page = page;
+    m_selected = 0;
     Fill();
 }
 
@@ -156,6 +165,16 @@ void Menu::Fill() {
             }
         }
     } else {
+        // (the page's own Speed and Mute rows first)
+        for (const MenuPage &page : m_config.pages) {
+            for (const MenuRow::Kind kind : page.name == m_page ? page.rows : std::vector<MenuRow::Kind>()) {
+                if (kind == MenuRow::Speed && !m_config.speeds.empty()) {
+                    m_rows.push_back({kRowSpeed, 0, ""});
+                } else if (kind == MenuRow::Mute && m_config.muted && m_config.setMuted) {
+                    m_rows.push_back({kRowMute, 0, ""});
+                }
+            }
+        }
         for (size_t i = 0; i < m_config.commands.size(); i++) {
             if (m_page == m_config.commands[i].category) {
                 m_rows.push_back({kRowCommand, i, ""});
@@ -231,14 +250,32 @@ Menu::Chosen Menu::Buttons(unsigned pressed) {
             }
         } else {
             const int choices = static_cast<int>(feature.choices.size());
-            m_config.setValue(row.index, press ? (value + 1) % choices : std::clamp(value + step, 0, choices - 1));
+            auto offered = [&](int choice) { return choice == 0 || choice == value || !m_config.offered || m_config.offered(row.index, choice); };
+            int to = value;
+            if (press) {
+                // (around, to the next one offered: off at the latest)
+                do {
+                    to = (to + 1) % choices;
+                } while (!offered(to));
+            } else {
+                // (to the next one offered that way; none: as it is)
+                for (int at = value + step; at >= 0 && at < choices; at += step) {
+                    if (offered(at)) {
+                        to = at;
+                        break;
+                    }
+                }
+            }
+            m_config.setValue(row.index, to);
         }
         return {};
     }
     if (!press) {
-        // (Left on a page's other rows: back to the page it was reached from)
+        // (Left on a page's other rows: back to the page it was reached from; Right on a page's row: into it)
         if ((pressed & kMenuLeft) && !m_page.empty()) {
             Leave();
+        } else if ((pressed & kMenuRight) && row.kind == kRowPage) {
+            Enter(row.page);
         }
         return {};
     }
@@ -249,12 +286,7 @@ Menu::Chosen Menu::Buttons(unsigned pressed) {
     case kRowQuit: return {Chosen::Quit, 0};
     case kRowResume: m_open = false; break;
     case kRowCommand: return {Chosen::Command, static_cast<int>(row.index)};
-    case kRowPage:
-        m_left.push_back(m_selected);
-        m_page = row.page;
-        m_selected = 0;
-        Fill();
-        break;
+    case kRowPage: Enter(row.page); break;
     case kRowBack: Leave(); break;
     default: break;
     }
@@ -272,46 +304,10 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
     const float pad = 8 * d;
     const float panelWidth = std::min(150 * kCharWidth * d / 2, width * 0.9f); // 75 small characters, if there is room
     const float inner = panelWidth - 2 * pad;
-    // (the hint is one line unless the picture is a narrow one)
-    const std::string hint = "Up/Down: choose   Left/Right or " + m_config.confirmName + ": change   " + m_config.closeName + ": close";
-    const int hintLines = TextLines(hint.c_str(), d, inner);
-    // (rows closer together when there are many; and when even that does not fit, the rows about the chosen
-    // one are shown)
-    const float around = 8 + 16 + 6 + 8 + 3 * kLineHeight + 4 + hintLines * kLineHeight + 8;
-    constexpr float kDivider = 9; // (the room a line between groups takes)
-    const float dividers = static_cast<float>(std::count_if(m_rows.begin(), m_rows.end(), [](const Row &row) { return row.divider; }));
-    const float room = height / d - around - dividers * kDivider;
-    const size_t shown = std::min(m_rows.size(), static_cast<size_t>(std::max(room / 15.0f, 1.0f)));
-    const float rowHeight = std::clamp(room / shown, 15.0f, 22.0f) * d;
-    const size_t first = std::min(static_cast<size_t>(std::max(m_selected - static_cast<int>(shown) / 2, 0)), m_rows.size() - shown);
-    constexpr int kDescriptionLines = 3;
-    const float panelHeight = pad + 16 * d + 6 * d + shown * rowHeight + dividers * kDivider * d + 8 * d + kDescriptionLines * kLineHeight * d + 4 * d + hintLines * kLineHeight * d + pad;
-    const float px = (width - panelWidth) / 2, py = (height - panelHeight) / 2;
-
-    canvas.Fill(0, 0, static_cast<float>(width), static_cast<float>(height), {0, 0, 0, 150});
-    canvas.Fill(px, py, panelWidth, panelHeight, {20, 22, 30, 240});
-
-    const float x = px + pad;
-    float y = py + pad;
-    canvas.Text(x, y, 2 * d, 0, white, m_page.empty() ? "Menu" : m_page.c_str());
-    if (shown < m_rows.size()) {
-        const std::string place = std::to_string(m_selected + 1) + " of " + std::to_string(m_rows.size());
-        canvas.Text(x + inner - TextWidth(place.c_str(), d), y + 4 * d, d, 0, dim, place.c_str());
-    }
-    y += 16 * d + 6 * d;
-    std::string description;
-    for (size_t i = first; i < first + shown; i++, y += rowHeight) {
-        const bool selected = static_cast<int>(i) == m_selected;
-        if (m_rows[i].divider && i > first) {
-            canvas.Fill(x, y + (kDivider * d - d) / 2, inner, d, {255, 255, 255, 70});
-            y += kDivider * d;
-        }
-        if (selected) {
-            canvas.Fill(px + pad / 2, y, panelWidth - pad, rowHeight, {255, 255, 255, 40});
-        }
-        std::string title = "Resume", value, rowDescription = "Back to the game.";
-        Color valueColor = white;
-        const Row &row = m_rows[i];
+    // A row's words: its title, its value (and the value's colour) and its description
+    const auto Describe = [&](const Row &row, std::string &title, std::string &value, Color &valueColor, std::string &rowDescription) {
+        title = "Resume";
+        rowDescription = "Back to the game.";
         switch (row.kind) {
         case kRowSave:
             title = "Save state";
@@ -329,14 +325,14 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
         case kRowSpeed:
             title = "Speed";
             value = m_config.speeds[static_cast<size_t>(m_speed)];
-            valueColor = m_speed == 0 ? dim : on;
+            valueColor = m_speed == m_config.normalSpeed ? dim : on;
             rowDescription = m_config.speedDescription;
             break;
         case kRowMute:
-            title = "Sound";
-            value = m_config.muted() ? "Muted" : "On";
+            title = "Mute";
+            value = m_config.muted() ? "On" : "Off";
             valueColor = m_config.muted() ? on : dim;
-            rowDescription = "Switches the game's sound off and on.";
+            rowDescription = "Switches the game's sound off, and on again.";
             break;
         case kRowAction:
             title = m_first[row.index].title;
@@ -390,10 +386,73 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
         }
         default: break;
         }
+    };
+    // (the hint is one line unless the picture is a narrow one)
+    const std::string hint = "Up/Down: choose   Left/Right or " + m_config.confirmName + ": change   " + m_config.closeName + ": close";
+    const int hintLines = TextLines(hint.c_str(), d, inner);
+    // (rows closer together when there are many; and when even that does not fit, the rows about the chosen
+    // one are shown)
+    // (room for the longest description on the page, three lines at least, so that it never runs into the hint)
+    int descriptionLines = 3;
+    for (const Row &row : m_rows) {
+        std::string title, value, rowDescription;
+        Color valueColor = white;
+        Describe(row, title, value, valueColor, rowDescription);
+        descriptionLines = std::max(descriptionLines, TextLines(rowDescription.c_str(), d, inner));
+    }
+    descriptionLines = std::max(descriptionLines, TextLines(m_note.c_str(), d, inner));
+    const float around = 8 + 16 + 6 + 8 + descriptionLines * kLineHeight + 4 + hintLines * kLineHeight + 8;
+    constexpr float kDivider = 9; // (the room a line between groups takes)
+    const float dividers = static_cast<float>(std::count_if(m_rows.begin(), m_rows.end(), [](const Row &row) { return row.divider; }));
+    const float room = height / d - around - dividers * kDivider;
+    const size_t shown = std::min(m_rows.size(), static_cast<size_t>(std::max(room / 15.0f, 1.0f)));
+    const float rowHeight = std::clamp(room / shown, 15.0f, 22.0f) * d;
+    const size_t first = std::min(static_cast<size_t>(std::max(m_selected - static_cast<int>(shown) / 2, 0)), m_rows.size() - shown);
+    const float panelHeight = pad + 16 * d + 6 * d + shown * rowHeight + dividers * kDivider * d + 8 * d + descriptionLines * kLineHeight * d + 4 * d + hintLines * kLineHeight * d + pad;
+    const float px = (width - panelWidth) / 2, py = (height - panelHeight) / 2;
+
+    canvas.Fill(0, 0, static_cast<float>(width), static_cast<float>(height), {0, 0, 0, 150});
+    canvas.Fill(px, py, panelWidth, panelHeight, {20, 22, 30, 255}); // (opaque: the game's own text would show through)
+
+    const float x = px + pad;
+    float y = py + pad;
+    canvas.Text(x, y, 2 * d, 0, white, m_page.empty() ? "Menu" : m_page.c_str());
+    if (shown < m_rows.size()) {
+        const std::string place = std::to_string(m_selected + 1) + " of " + std::to_string(m_rows.size());
+        canvas.Text(x + inner - TextWidth(place.c_str(), d), y + 4 * d, d, 0, dim, place.c_str());
+    }
+    y += 16 * d + 6 * d;
+    std::string description;
+    for (size_t i = first; i < first + shown; i++, y += rowHeight) {
+        const bool selected = static_cast<int>(i) == m_selected;
+        if (m_rows[i].divider && i > first) {
+            canvas.Fill(x, y + (kDivider * d - d) / 2, inner, d, {255, 255, 255, 70});
+            y += kDivider * d;
+        }
+        if (selected) {
+            canvas.Fill(px + pad / 2, y, panelWidth - pad, rowHeight, {255, 255, 255, 40});
+        }
+        std::string title, value, rowDescription;
+        Color valueColor = white;
+        Describe(m_rows[i], title, value, valueColor, rowDescription);
         const float ty = y + (rowHeight - 14 * d) / 2;
         canvas.Text(x, ty, 2 * d, 0, white, title.c_str());
         if (!value.empty()) {
-            canvas.Text(x + inner - TextWidth(value.c_str(), 2 * d), ty, 2 * d, 0, valueColor, value.c_str());
+            // (a value too long for the room beside the title: in the small letters, and cut short if even
+            // those do not fit)
+            const float room = inner - TextWidth(title.c_str(), 2 * d) - 6 * d;
+            if (TextWidth(value.c_str(), 2 * d) <= room) {
+                canvas.Text(x + inner - TextWidth(value.c_str(), 2 * d), ty, 2 * d, 0, valueColor, value.c_str());
+            } else {
+                std::string small = value;
+                if (TextWidth(small.c_str(), d) > room) {
+                    while (small.size() > 1 && TextWidth((small + "..").c_str(), d) > room) {
+                        small.pop_back();
+                    }
+                    small += "..";
+                }
+                canvas.Text(x + inner - TextWidth(small.c_str(), d), ty + 4 * d, d, 0, valueColor, small.c_str());
+            }
         }
         if (selected) {
             description = rowDescription;
@@ -401,7 +460,7 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
     }
     y += 8 * d;
     canvas.Text(x, y, d, inner, m_note.empty() ? dim : white, m_note.empty() ? description.c_str() : m_note.c_str());
-    y += kDescriptionLines * kLineHeight * d + 4 * d;
+    y += descriptionLines * kLineHeight * d + 4 * d;
     canvas.Text(x, y, d, inner, dim, hint.c_str());
 }
 

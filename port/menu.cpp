@@ -40,10 +40,11 @@ void Menu::Configure(bool withStates) {
     }
     config.groups.push_back({{recomp::MenuRow::Quit}, {recomp::MenuRow::Resume}});
     for (const satrecomp::Feature &feature : satrecomp::TheGame().features) {
-        config.features.push_back({feature.category, feature.title, feature.description});
+        config.features.push_back({feature.category, feature.title, feature.description, {feature.choices.begin(), feature.choices.end()}});
     }
-    config.value = [](size_t feature) { return satrecomp::FeatureOn(satrecomp::TheGame().features[feature].name) ? 1 : 0; };
-    config.setValue = [](size_t feature, int value) { satrecomp::SetFeature(satrecomp::TheGame().features[feature].name, value != 0); };
+    // (what the player chose: a training aid shows as chosen outside a training session too, where it does nothing)
+    config.value = [](size_t feature) { return satrecomp::FeatureSetting(satrecomp::TheGame().features[feature].name); };
+    config.setValue = [](size_t feature, int value) { satrecomp::SetFeatureValue(satrecomp::TheGame().features[feature].name, value); };
     config.speeds.assign(std::begin(kSpeedNames), std::end(kSpeedNames));
     config.speedDescription = "Left/Right: how fast the game runs (- and = keys). F4 stops it and F8 goes on a frame at a time.";
     config.muted = [this] { return muted; };
@@ -54,7 +55,9 @@ void Menu::Configure(bool withStates) {
 }
 
 int Menu::Speed() const {
-    return kSpeeds[m_menu.Speed() < static_cast<int>(std::size(kSpeeds)) ? m_menu.Speed() : 0];
+    // (the shared menu's place in the list, which is -1 until the menu is first told of the list: full speed)
+    const int at = m_menu.Speed();
+    return kSpeeds[at >= 0 && at < static_cast<int>(std::size(kSpeeds)) ? at : 0];
 }
 
 void Menu::SetSpeed(int speed) {

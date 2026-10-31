@@ -17,14 +17,22 @@ namespace layout {
 // A rounded panel behind its contents.
 class Card {
 public:
-    explicit Card(float width) : list_(ImGui::GetWindowDrawList()), start_(ImGui::GetCursorScreenPos()), width_(width) {
+    // `highlight`: one worth the player's attention now (an invitation, a match to join, a new version): tinted with
+    // the accent and edged with it
+    explicit Card(float width, bool highlight = false)
+        : list_(ImGui::GetWindowDrawList()), start_(ImGui::GetCursorScreenPos()), width_(width), highlight_(highlight) {
         list_->ChannelsSplit(2);
         list_->ChannelsSetCurrent(1);
     }
     void end() {
-        float bottom = ImGui::GetCursorScreenPos().y;
+        const ui::Palette& p = ui::palette();
+        ImVec2 end(start_.x + width_, ImGui::GetCursorScreenPos().y);
         list_->ChannelsSetCurrent(0);
-        list_->AddRectFilled(start_, ImVec2(start_.x + width_, bottom), ui::palette().surface, ui::px(14));
+        list_->AddRectFilled(start_, end, p.surface, ui::px(14));
+        if (highlight_) {
+            list_->AddRectFilled(start_, end, p.accent_soft, ui::px(14));
+            list_->AddRect(start_, end, p.accent, ui::px(14), std::max(1.0f, ui::px(1.5f)));
+        }
         list_->ChannelsMerge();
     }
 
@@ -32,11 +40,14 @@ private:
     ImDrawList* list_;
     ImVec2 start_;
     float width_;
+    bool highlight_;
 };
 
-// A card row: label and detail on the left, a control on the right.
+// A card row: label and detail on the left, a control on the right. In a narrow window, where the words would have
+// too little room beside the control, the control goes under them. `dim`: its words greyed (a row that can't be used
+// yet: a game that isn't there, say)
 template <typename Control>
-void row(float width, const char* label, const char* detail, float control_width, float control_height, Control control) {
+void row(float width, const char* label, const char* detail, float control_width, float control_height, Control control, bool dim = false) {
     using ui::px;
     const ui::Palette& p = ui::palette();
     ImVec2 top = ImGui::GetCursorScreenPos();
@@ -44,16 +55,26 @@ void row(float width, const char* label, const char* detail, float control_width
     ImGui::SetCursorScreenPos(top + ImVec2(pad, px(14)));
     ImGui::BeginGroup();
     float text_width = width - pad * 2 - px(control_width) - px(24);
-    ui::text(label, ui::Font::Regular, ui::size::kBody, p.text, text_width);
+    bool under = text_width < px(230);
+    if (under) {
+        text_width = width - pad * 2;
+    }
+    ui::text(label, ui::Font::Regular, ui::size::kBody, dim ? p.tertiary : p.text, text_width);
     if (detail && *detail) {
         ui::gap(3);
-        ui::text(detail, ui::Font::Regular, ui::size::kDetail, p.secondary, text_width);
+        ui::text(detail, ui::Font::Regular, ui::size::kDetail, dim ? p.tertiary : p.secondary, text_width);
     }
     ImGui::EndGroup();
     float bottom = ImGui::GetItemRectMax().y + px(14);
-    float height = bottom - top.y;
-    ImGui::SetCursorScreenPos(ImVec2(top.x + width - pad - px(control_width), top.y + std::round((height - px(control_height)) * 0.5f)));
-    control();
+    if (under) {
+        ImGui::SetCursorScreenPos(ImVec2(top.x + pad, bottom - px(2)));
+        control();
+        bottom += px(control_height) + px(12);
+    } else {
+        float height = bottom - top.y;
+        ImGui::SetCursorScreenPos(ImVec2(top.x + width - pad - px(control_width), top.y + std::round((height - px(control_height)) * 0.5f)));
+        control();
+    }
     ImGui::SetCursorScreenPos(ImVec2(top.x, bottom));
     ImGui::Dummy(ImVec2(width, 0));
 }

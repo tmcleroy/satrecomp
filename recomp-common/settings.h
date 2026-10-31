@@ -7,6 +7,8 @@
 //   [features]
 //   preset = pure | enhanced | custom
 //   name = 0 | 1 | N        (N: the number of one of a feature's choices; no value: as the preset has it)
+//   [menu]
+//   name = 1,3,4            (a kFeatureMenuChoices feature: the choices the game's menu offers; no value: all)
 //
 // The game prints its features (FeatureListText, for its --list-features flag); the launcher reads them
 // (ParseFeatureList). Both read a value with FeatureValues and change one with SetFeature, which writes only
@@ -40,6 +42,11 @@ enum : unsigned {
     kFeatureEnhanced = 2,  // on in the "enhanced" preset
     kFeatureExclusive = 4, // only one of its category's exclusive features on at a time
     kFeatureSession = 8,   // for one run of the game only: never kept in the file, not shown by a launcher
+    // (16, 32: a port's own)
+    kFeatureOwn = 64,      // the game's own: a collection's launcher never sets it for another game (a record, say)
+    // A choice of several whose list in the game's menu the player may make shorter (in the launcher: the favourites
+    // of a long list): MenuChoices
+    kFeatureMenuChoices = 128,
 };
 
 struct FeatureInfo {
@@ -74,6 +81,12 @@ std::vector<int> FeatureValues(const Ini &ini, const std::vector<FeatureInfo> &f
 // rewritten. Switching an exclusive feature on switches its category's other exclusive ones off. A session
 // feature is not written. (The caller saves.)
 void SetFeature(Ini &ini, const std::vector<FeatureInfo> &features, size_t index, int value);
+
+// Of a kFeatureMenuChoices feature, whether the game's menu offers each of its choices (as [menu] says; every one when
+// it says nothing, or the feature is not one). The first, off, always is.
+std::vector<bool> MenuChoices(const Ini &ini, const FeatureInfo &feature);
+// ... and setting them (every one offered: the key taken out). (The caller saves.)
+void SetMenuChoices(Ini &ini, const FeatureInfo &feature, const std::vector<bool> &offered);
 
 // Chooses a preset. "pure" and "enhanced" take every feature's own value out of the file (they follow the
 // preset again); "custom" leaves them. (The caller saves.)

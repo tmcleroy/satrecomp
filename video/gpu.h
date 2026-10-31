@@ -35,6 +35,11 @@ public:
 
     // Does a frame's VDP1 work and makes the picture, in Output()
     void Draw(const Frame &frame);
+    // Run-ahead (port/main.cpp): the VDP1's two framebuffers as drawn here are kept before frames that will
+    // be taken back, and put back after them (so the next frame draws on what it would have without them).
+    // The picture made meanwhile stays: it is the one shown.
+    void KeepSprites();
+    void PutSpritesBack();
     SDL_GPUTexture *Output() const {
         return m_output;
     }
@@ -83,6 +88,9 @@ private:
     SDL_GPUGraphicsPipeline *m_quadPipeline = nullptr, *m_composePipeline = nullptr;
     SDL_GPUSampler *m_nearest = nullptr;
     SDL_GPUTexture *m_sprites[2] = {}; // the VDP1's two framebuffers: [0] on display, [1] drawn to
+    SDL_GPUTexture *m_keptSprites[2] = {}; // (run-ahead's copy of them, and the size it is of)
+    uint32_t m_keptWidth = 0, m_keptHeight = 0, m_keptScale = 0;
+    void CopySprites(SDL_GPUTexture *const from[2], SDL_GPUTexture *const to[2]);
     SDL_GPUTexture *m_vram = nullptr, *m_colors = nullptr, *m_back = nullptr, *m_window = nullptr;
     SDL_GPUTexture *m_vram2 = nullptr, *m_floorLines = nullptr; // for the rotation screen drawn here
     SDL_GPUTexture *m_layers[5] = {};

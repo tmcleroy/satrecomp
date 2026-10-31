@@ -194,6 +194,9 @@ void Gpu::Shutdown() {
     for (auto *&texture : m_sprites) {
         Release(texture);
     }
+    for (auto *&texture : m_keptSprites) {
+        Release(texture);
+    }
     for (auto *&texture : m_layers) {
         Release(texture);
     }
@@ -238,6 +241,48 @@ void Gpu::Shutdown() {
 void Gpu::SetOutputSize(uint32_t width, uint32_t height) {
     m_wantedWidth = std::max<uint32_t>(width, 16);
     m_wantedHeight = std::max<uint32_t>(height, 16);
+}
+
+void Gpu::CopySprites(SDL_GPUTexture *const from[2], SDL_GPUTexture *const to[2]) {
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(m_device);
+    SDL_GPUCopyPass *pass = SDL_BeginGPUCopyPass(cmd);
+    for (int i = 0; i < 2; i++) {
+        SDL_GPUTextureLocation source{}, destination{};
+        source.texture = from[i];
+        destination.texture = to[i];
+        SDL_CopyGPUTextureToTexture(pass, &source, &destination, m_spriteWidth * m_scale, m_spriteHeight * m_scale, 1, false);
+    }
+    SDL_EndGPUCopyPass(pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+}
+
+void Gpu::KeepSprites() {
+    if (!m_device || !m_sprites[0]) {
+        return;
+    }
+    if (!m_keptSprites[0] || m_keptWidth != m_spriteWidth || m_keptHeight != m_spriteHeight || m_keptScale != m_scale) {
+        for (auto *&texture : m_keptSprites) {
+            Release(texture);
+            texture = Texture(SDL_GPU_TEXTUREFORMAT_R16_UINT, m_spriteWidth * m_scale, m_spriteHeight * m_scale, true);
+        }
+        if (!m_keptSprites[0] || !m_keptSprites[1]) {
+            return;
+        }
+    }
+    m_keptWidth = m_spriteWidth;
+    m_keptHeight = m_spriteHeight;
+    m_keptScale = m_scale;
+    CopySprites(m_sprites, m_keptSprites);
+}
+
+void Gpu::PutSpritesBack() {
+    // (not when the frames run ahead changed the framebuffers' size: those are new, and what is drawn next
+    // fills them)
+    if (!m_device || !m_sprites[0] || !m_keptSprites[0] || m_keptWidth != m_spriteWidth || m_keptHeight != m_spriteHeight ||
+        m_keptScale != m_scale) {
+        return;
+    }
+    CopySprites(m_keptSprites, m_sprites);
 }
 
 // Textures and buffers of the sizes this frame needs

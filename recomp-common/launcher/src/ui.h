@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // From the launcher of wiiparty-recomp by arelkair (https://github.com/arelkair/wiiparty-recomp,
 // launcher/src/ui.h), which is licensed GPL-3.0-or-later; as it was there but for the four functions about
-// the arrow keys and a gamepad.
+// the arrow keys and a gamepad, and search_box.
 // Part of recomp-common (https://github.com/tmcleroy/recomp-common); see THIRD_PARTY_NOTICES.md.
 #pragma once
 
@@ -80,12 +80,23 @@ bool gamepad_in_use();
 bool button(const char* label, Kind kind, float width = 0.0f, bool enabled = true, float height = 36.0f);
 bool toggle(const char* id, bool value);
 bool dropdown(const char* id, const std::vector<std::string>& labels, int& index, float width);
+// A field to type in, with a magnifying glass and (when it is not empty) a cross that empties it; Esc empties
+// it too, and a second Esc (or a gamepad's B, which keeps what was typed) leaves it. True when what is in it
+// changed.
+bool search_box(const char* id, char* buffer, size_t size, const char* hint, float width);
+// A field to type in (an address, say), with `hint` in it while it is empty; a gamepad's B leaves it. True when
+// what is in it changed.
+bool text_field(const char* id, char* buffer, size_t size, const char* hint, float width);
 // (`reachable`: false keeps the arrow keys and a gamepad off it)
-bool nav_item(const char* label, bool active, float width, bool reachable = true);
+// `indent`: its words further in (a row under another's). `fold`: a row that opens and closes the rows under it shows a
+// chevron at its end, pointing right while it is closed (0) and down while it is open (1); -1: none.
+bool nav_item(const char* label, bool active, float width, bool reachable = true, float indent = 0.0f, int fold = -1);
 bool list_item(const char* label, bool active, float width);
 bool key_chip(const char* id, const char* label, bool capturing, float width, ImRect& rect);
 float keycap(const char* key);
 std::string fit_start(const std::string& value, Font font, float size, float width);
+// ... and its end ("Super Puzzle Fi…")
+std::string fit_end(const std::string& value, Font font, float size, float width);
 void separator(float width);
 void progress_bar(ImGuiID id, float fraction, float width, float height);
 void spinner(ImVec2 center, float radius, ImU32 color);

@@ -1696,6 +1696,41 @@ void StateLoaded() {
     ++SATRECOMP_CODE_EPOCH;
 }
 
+namespace {
+    struct KeptDispatcher {
+        Runtime::Waiting waiting[2];
+        bool syncPaused[2] = {false, false};
+        Runtime::Linking linking[2];
+        uint64_t activity = 0;
+    } g_keptDispatcher;
+} // namespace
+
+void KeepDispatcher() {
+    if (!g_rt) {
+        return;
+    }
+    for (int cpu = 0; cpu < 2; cpu++) {
+        g_keptDispatcher.linking[cpu] = g_rt->linking[cpu];
+        g_keptDispatcher.waiting[cpu] = g_rt->waiting[cpu];
+        g_keptDispatcher.syncPaused[cpu] = g_rt->syncPaused[cpu];
+    }
+    g_keptDispatcher.activity = SATRECOMP_ACTIVITY;
+}
+
+void PutDispatcherBack() {
+    if (!g_rt) {
+        return;
+    }
+    for (int cpu = 0; cpu < 2; cpu++) {
+        g_rt->linking[cpu] = g_keptDispatcher.linking[cpu];
+        g_rt->waiting[cpu] = g_keptDispatcher.waiting[cpu];
+        g_rt->syncPaused[cpu] = g_keptDispatcher.syncPaused[cpu];
+    }
+    // (the activity count as it was, so that loops known to be waiting are as they were; the code is compared
+    // again, as memory was put back without writes being seen)
+    SATRECOMP_ACTIVITY = g_keptDispatcher.activity;
+}
+
 void ResetRunCounts() {
     if (g_rt) {
         for (auto &e : g_rt->entries) {

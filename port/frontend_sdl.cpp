@@ -105,7 +105,9 @@ int RunWindowed(Port &port) {
     const int scale = std::max(1, port.opt.scale);
     // The picture is drawn by the GPU (video/gpu.h) into the window's swapchain, or in software and shown
     // through an SDL renderer
-    SDL_Window *window = SDL_CreateWindow("satrecomp", 320 * scale, 240 * scale,
+    // (as wide as the picture: 4:3, or wider in widescreen)
+    const int windowWidth = port.gpu ? static_cast<int>(240.0f * static_cast<float>(scale) * port.gpu->Aspect() + 0.5f) : 320 * scale;
+    SDL_Window *window = SDL_CreateWindow("satrecomp", windowWidth, 240 * scale,
                                           SDL_WINDOW_RESIZABLE | (port.gpu ? SDL_WINDOW_HIGH_PIXEL_DENSITY : 0) |
                                               (port.opt.fullscreen ? SDL_WINDOW_FULLSCREEN : 0) | (testHidden ? SDL_WINDOW_HIDDEN : 0));
     SDL_Renderer *renderer = nullptr;
@@ -433,6 +435,7 @@ int RunWindowed(Port &port) {
         const bool runs = !paused || stepFrame;
         stepFrame = false;
         if (runs) {
+            port.stepping = paused; // (a frame at a time: no run-ahead)
             port.RunFrame();
         } else {
             audio.pending.clear();
@@ -451,6 +454,17 @@ int RunWindowed(Port &port) {
         audio.pending.clear();
 
         if (port.gpu) {
+            // (a window, not full screen or maximized, takes the picture's shape again when that changes:
+            // widescreen switched on or off in the menu)
+            static float shownAspect = port.gpu->Aspect();
+            if (shownAspect != port.gpu->Aspect()) {
+                shownAspect = port.gpu->Aspect();
+                if (!(SDL_GetWindowFlags(window) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED))) {
+                    int windowW = 0, windowH = 0;
+                    SDL_GetWindowSize(window, &windowW, &windowH);
+                    SDL_SetWindowSize(window, static_cast<int>(static_cast<float>(windowH) * shownAspect + 0.5f), windowH);
+                }
+            }
             port.UpdateHud(); // (the note may have changed while the game stands still)
             port.gpu->Present(window);
         } else {
