@@ -215,6 +215,11 @@ namespace {
 namespace {
     float g_aspect = 4.0f / 3.0f;
 } // namespace
+LookInput &Look() {
+    static LookInput look;
+    return look;
+}
+
 float PictureAspect() {
     return g_aspect;
 }

@@ -41,6 +41,18 @@ namespace {
         return PadInputBound(g_bindings, {button, -1});
     }
 
+    // Some player has this key bound
+    bool KeyBound(SDL_Scancode code) {
+        for (int player = 0; player < kBoundPlayers; player++) {
+            for (int action = 0; action < ActionCount(); action++) {
+                if (g_bindings.key[player][action] == code) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     uint16_t ReadKeyboard(const bool *keys, int player) {
         uint16_t pad = 0;
         for (int action = 0; action < ActionCount(); action++) {
@@ -78,7 +90,7 @@ int RunWindowed(Port &port) {
     //   SATRECOMP_WINDOW_HIDDEN=1          the window is made but not shown, and the program stays in the background
     //   SATRECOMP_WINDOW_KEYS=PASS:KEY,... on that pass of the loop below the key goes down as from the keyboard
     //                                      (F1 to F12, ESC, MINUS, EQUALS); or SHOT=path, the picture as it was
-    //                                      last shown; or QUIT
+    //                                      last shown; or FEATURE=name=value, as the menu would set it; or QUIT
     //   SATRECOMP_WINDOW_LOG=1             a line whenever the game stops or goes on, or the speed or the note
     //                                      changes, and every 60 frames, with the time
     const bool testHidden = getenv("SATRECOMP_WINDOW_HIDDEN") != nullptr, testLog = getenv("SATRECOMP_WINDOW_LOG") != nullptr;
@@ -359,6 +371,11 @@ int RunWindowed(Port &port) {
                          {"F8", SDL_SCANCODE_F8},  {"F9", SDL_SCANCODE_F9},       {"F10", SDL_SCANCODE_F10},       {"F11", SDL_SCANCODE_F11}, {"F12", SDL_SCANCODE_F12}};
             if (step.what == "QUIT") {
                 running = false;
+            } else if (step.what.rfind("FEATURE=", 0) == 0) {
+                const size_t equals = step.what.find('=', 8);
+                if (equals != std::string::npos) {
+                    satrecomp::SetFeatureValue(step.what.substr(8, equals - 8).c_str(), atoi(step.what.c_str() + equals + 1));
+                }
             } else if (step.what.rfind("SHOT=", 0) == 0) {
                 // (shaded: what the preset drew, as the window shows it)
                 std::vector<uint32_t> drawn;
@@ -517,6 +534,25 @@ int RunWindowed(Port &port) {
                 }
                 pads[0] = pads[1] = 0;
             }
+            // (the look controls, for a game's free camera: runtime/game.h, Look)
+            satrecomp::LookInput look;
+            if (!port.menu.IsOpen()) {
+                auto key = [&](SDL_Scancode code) {
+                    return keys[code] && !KeyBound(code) ? 1.0f : 0.0f;
+                };
+                look.x = key(SDL_SCANCODE_L) - key(SDL_SCANCODE_J);
+                look.y = key(SDL_SCANCODE_K) - key(SDL_SCANCODE_I);
+                look.zoom = key(SDL_SCANCODE_U) - key(SDL_SCANCODE_O);
+                for (SDL_Gamepad *gamepad : gamepads) {
+                    auto axis = [&](SDL_GamepadAxis which) {
+                        const float at = SDL_GetGamepadAxis(gamepad, which) / 32767.0f;
+                        return std::fabs(at) < 0.2f ? 0.0f : at;
+                    };
+                    look.x = std::clamp(look.x + axis(SDL_GAMEPAD_AXIS_RIGHTX), -1.0f, 1.0f);
+                    look.y = std::clamp(look.y + axis(SDL_GAMEPAD_AXIS_RIGHTY), -1.0f, 1.0f);
+                }
+            }
+            satrecomp::Look() = look;
             heldAtClose &= pads[0];
             port.pad[0] = pads[0] & ~heldAtClose;
             port.pad[1] = pads[1];

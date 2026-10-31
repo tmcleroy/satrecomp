@@ -127,6 +127,15 @@ uint64_t HudSerial(); // (goes up when the lines change)
 float PictureAspect();
 void SetPictureAspect(float aspect);
 
+// The player's look controls as they are this frame, for a game's free camera (the window fills them in: a
+// gamepad's right stick, and the keys I, J, K, L to turn, U and O to come nearer and go farther, unless the
+// player gave those keys to the game): x to the right and y down, each -1 to 1; zoom +1 nearer, -1 farther.
+// Nothing reads the pads for them, so the game gets the same input whatever they are.
+struct LookInput {
+    float x = 0, y = 0, zoom = 0;
+};
+LookInput &Look();
+
 // Work RAM as the game's sources see it: a pointer to the byte at a Saturn address (high work RAM
 // 0x06000000, low 0x00200000), null elsewhere. Values there are big-endian.
 uint8_t *Ram(uint32_t address);
