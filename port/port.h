@@ -74,7 +74,8 @@ struct Options {
     bool unthrottled = false;
     bool stats = false;
     bool videoStats = false;
-    int scale = 3;
+    int scale = 0;            // the window's size in times 240 lines (0: as the Display page's Window size says)
+    std::string shader;       // a shader preset to draw through, whatever the Display page says
 };
 
 // An input movie: pad states that change at given frame numbers. Text format, one change per line:
@@ -159,6 +160,8 @@ struct Port {
     bool LoadState(const std::string &path, std::string &error);
     // Where slot n's state is kept (beside the save memory)
     std::string StatePath(int slot) const;
+    // The Display page's Shader: the preset to draw through (a .slangp file), or "" for none (port/shading.h)
+    std::string ShaderPreset() const;
     uint64_t StateHash();
 };
 

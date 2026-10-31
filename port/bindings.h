@@ -9,6 +9,8 @@
 //   [gamepad1]          a button or a trigger by SDL's name ("a", "leftshoulder", "righttrigger"), or "none"
 //   a = x
 //
+//   bc = none           a game's combined buttons (game.cfg's `combos`): several Saturn buttons at once
+//
 // (and [keyboard2], [gamepad2] for player 2). What is not in the file is as the usual layout has it. The
 // first gamepad is player 1's and the second player 2's; a gamepad's left stick always works as the
 // directions.
@@ -16,8 +18,10 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "../recomp-common/launcher/src/bindings.h"
 
@@ -42,6 +46,61 @@ inline constexpr int kBoundPlayers = 2;
 using recomp::Bindings;
 using recomp::PadInput;
 
+// A game's combined buttons, from its game.cfg (`combos`, passed to the build as SATRECOMP_COMBOS): actions that
+// press several Saturn buttons at once, for a fighting game's moves that take them together. Each is the
+// buttons' names run together, a space and its title, the next after a "|": "bc Punch + kick | abc Guard +
+// punch + kick". They have no key or button until the player gives them one.
+#ifndef SATRECOMP_COMBOS
+#define SATRECOMP_COMBOS ""
+#endif
+struct ComboAction {
+    std::string name, title;
+    uint16_t bits = 0;
+};
+inline std::vector<ComboAction> ParseCombos(const std::string &text) {
+    std::vector<ComboAction> combos;
+    size_t at = 0;
+    while (at <= text.size()) {
+        const size_t end = std::min(text.find('|', at), text.size());
+        std::string item = text.substr(at, end - at);
+        at = end + 1;
+        const size_t first = item.find_first_not_of(' ');
+        if (first == std::string::npos) {
+            continue;
+        }
+        item = item.substr(first, item.find_last_not_of(' ') - first + 1);
+        const size_t space = item.find(' ');
+        ComboAction combo{item.substr(0, space), space == std::string::npos ? item : item.substr(item.find_first_not_of(' ', space)), 0};
+        bool known = !combo.name.empty();
+        for (const char c : combo.name) {
+            bool found = false;
+            for (const BoundAction &action : kBoundActions) {
+                if (action.name[0] == c && action.name[1] == 0) {
+                    combo.bits |= action.bit;
+                    found = true;
+                }
+            }
+            known = known && found;
+        }
+        if (known && static_cast<int>(combos.size()) + kBoundActionCount < recomp::kBindMaxActions) {
+            combos.push_back(combo);
+        }
+    }
+    return combos;
+}
+inline const std::vector<ComboAction> &Combos() {
+    static const std::vector<ComboAction> combos = ParseCombos(SATRECOMP_COMBOS);
+    return combos;
+}
+// Every action: the Saturn pad's, then the game's combined buttons
+inline int ActionCount() {
+    return kBoundActionCount + static_cast<int>(Combos().size());
+}
+// The Saturn pad bits an action presses
+inline uint16_t ActionBits(int action) {
+    return action < kBoundActionCount ? kBoundActions[action].bit : Combos()[static_cast<size_t>(action - kBoundActionCount)].bits;
+}
+
 // The layout with nothing chosen. Keyboard, player 1: arrows; Return Start; Z X C are A B C; A S D are
 // X Y Z; Q E are L R. Player 2 has no keys until some are chosen. A gamepad: the three lower Saturn buttons
 // A B C on West, South, East; X Y Z on left shoulder, North, right shoulder; L R on the triggers.
@@ -59,13 +118,17 @@ inline const recomp::BindTable &BindingTable() {
         {-1, SDL_GAMEPAD_AXIS_LEFT_TRIGGER},    {-1, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER},
     };
     static const struct Table {
-        recomp::BindAction actions[kBoundActionCount];
+        recomp::BindAction actions[recomp::kBindMaxActions];
         recomp::BindTable table;
         Table() {
             for (int action = 0; action < kBoundActionCount; action++) {
                 actions[action] = {kBoundActions[action].name, kBoundActions[action].title, {kKeys[action], SDL_SCANCODE_UNKNOWN}, {kPad[action], kPad[action]}};
             }
-            table = {actions, kBoundActionCount, kBoundPlayers};
+            const PadInput none{-1, -1};
+            for (size_t i = 0; i < Combos().size(); i++) {
+                actions[kBoundActionCount + i] = {Combos()[i].name.c_str(), Combos()[i].title.c_str(), {SDL_SCANCODE_UNKNOWN, SDL_SCANCODE_UNKNOWN}, {none, none}};
+            }
+            table = {actions, ActionCount(), kBoundPlayers};
         }
     } table;
     return table.table;

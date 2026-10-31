@@ -141,7 +141,7 @@ verify: ref
 # The launcher (SDL3 + Dear ImGui; satrecomp/launcher): the player's disc image and BIOS, features,
 # controllers, Play. Built beside the port, which it runs.
 launcher: port
-	@cmake -S $(SR)/launcher -B $(B)/launcher -G Ninja -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(CURDIR)/$(B) \
+	@cmake -S $(SR)/launcher -B $(B)/launcher -G Ninja -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(CURDIR)/$(B) -DGAME_DIR=$(CURDIR)/games/$(GAME) \
 	  -DGAME_NAME="$(shell $(CFG) name $(GAME))" -DGAME_EXE=$(GAME) -DDISC_NAME="$(shell $(CFG) disc_name $(GAME))" \
 	  -DDISC_PRODUCT="$(shell $(CFG) disc_product $(GAME))" -DDISC_VERSION="$(shell $(CFG) disc_version $(GAME))" \
 	  -DAPP_ID=$(shell $(CFG) app_id $(GAME)) -DHOME_ENV=$(shell echo $(GAME) | tr a-z A-Z)_HOME \

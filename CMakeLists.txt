@@ -13,6 +13,12 @@ endif ()
 set(GAME "fighting_vipers" CACHE STRING "Game id (directory under games/)")
 set(GAME_DIR "${CMAKE_SOURCE_DIR}/../games/${GAME}" CACHE PATH "The game's directory (game.cfg, src/)")
 set(WORK_DIR "${CMAKE_SOURCE_DIR}/../work/${GAME}" CACHE PATH "Generated code directory")
+# The game's combined buttons (game.cfg's `combos`, port/bindings.h), for the game and the launcher alike
+set(GAME_COMBOS "")
+if (EXISTS "${GAME_DIR}/game.cfg")
+    file(STRINGS "${GAME_DIR}/game.cfg" GAME_COMBOS REGEX "^combos[ \t]*=")
+    string(REGEX REPLACE "^combos[ \t]*=[ \t]*" "" GAME_COMBOS "${GAME_COMBOS}")
+endif ()
 
 find_package(SDL3 REQUIRED CONFIG)
 find_package(ZLIB REQUIRED)
@@ -38,7 +44,7 @@ add_executable(${GAME}
     ${GAME_SOURCES}
     port/main.cpp
     port/disc_files.cpp port/disc_image.cpp
-    port/frontend_sdl.cpp port/menu.cpp port/hud.cpp recomp-common/menu.cpp recomp-common/settings.cpp
+    port/frontend_sdl.cpp port/shading.cpp port/menu.cpp port/hud.cpp recomp-common/menu.cpp recomp-common/settings.cpp
     video/renderer.cpp video/regs.cpp video/layers.cpp video/vdp1.cpp video/raster.cpp video/gpu.cpp
     sound/chip.cpp sound/m68k.cpp sound/state.cpp
     machine/sh2.cpp machine/machine.cpp machine/vdp.cpp machine/cd.cpp machine/state.cpp
@@ -47,7 +53,7 @@ add_executable(${GAME}
     runtime/hle_bios.cpp
     ${GEN_SOURCES}
 )
-target_compile_definitions(${GAME} PRIVATE SATRECOMP_OWN_MACHINE)
+target_compile_definitions(${GAME} PRIVATE SATRECOMP_OWN_MACHINE "SATRECOMP_COMBOS=\"${GAME_COMBOS}\"")
 target_include_directories(${GAME} PRIVATE runtime port "${WORK_DIR}/gen")
 target_link_libraries(${GAME} PRIVATE SDL3::SDL3 ZLIB::ZLIB)
 target_compile_options(${GAME} PRIVATE -Wno-unused-parameter)
@@ -98,7 +104,7 @@ add_subdirectory("${YMIR_DIR}/libs/ymir-core" ymir-core EXCLUDE_FROM_ALL)
         port/main.cpp
         port/disc_files.cpp port/disc_image.cpp
         port/video_stats.cpp
-        port/frontend_sdl.cpp port/menu.cpp port/hud.cpp recomp-common/menu.cpp recomp-common/settings.cpp
+        port/frontend_sdl.cpp port/shading.cpp port/menu.cpp port/hud.cpp recomp-common/menu.cpp recomp-common/settings.cpp
         video/renderer.cpp video/regs.cpp video/ymir_adapter.cpp video/layers.cpp video/vdp1.cpp video/raster.cpp video/gpu.cpp
         sound/generator.cpp sound/chip.cpp sound/m68k.cpp sound/state.cpp
         runtime/music.cpp runtime/game.cpp

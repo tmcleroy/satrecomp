@@ -108,6 +108,81 @@ static void RegisterPortFeatures() {
     game.features.push_back({"widescreen", "Display", "Widescreen",
                              "16:9: fights show more at the sides. The launcher's switch changes with it. Needs high resolution.",
                              satrecomp::kFeatureFirstPage});
+    // (the Display page: how the picture is fitted to the window, video/gpu.h SetFit; the first choice of each
+    // is how the port always drew it)
+    game.features.push_back({"display_scaling", "Display", "Scaling",
+                             "Sharp: as large as fits. Whole pixels: as tall as a whole number of the Saturn's lines fits, "
+                             "a border round it. Smooth: with high resolution off, the Saturn's picture softened up to the "
+                             "size (with it on, polygons are drawn at the window's size either way).",
+                             0, {"Sharp", "Whole pixels", "Smooth"}});
+    game.features.push_back({"display_shape", "Display", "Picture shape",
+                             "4:3: as a television showed it (16:9 in widescreen). Square pixels: each pixel as wide as it "
+                             "is tall, a little wider. Fill: the whole window or screen, stretched to it.",
+                             0, {"4:3", "Square pixels", "Fill"}});
+    // (display_shader: Port::ShaderPreset, shading.h; the presets are in shaders/ beside the program, kShaderPresets,
+    // made with librashader by tools/librashader.sh)
+    game.features.push_back({"display_shader", "Display", "Shader",
+                             "The picture drawn through one of RetroArch's shaders, at the Saturn's own resolution. CRT: a "
+                             "curved television. CRT Lottes and CRT Guest: flat screens, sharp and bright. CRT Royale: the "
+                             "closest to a real screen's glass and the slowest. CRT Light: lines and a faint mask, for a slow "
+                             "computer. Scanlines: the lines alone, light, strong, as an OSSC draws them, or dark. xBRZ and "
+                             "ScaleFX: the pixels' edges made smooth lines and curves. Your own: the first .slangp preset in "
+                             "the shaders folder beside the game's settings. The picture's shape stays as set.",
+                             0, {"Off", "CRT", "CRT Lottes", "CRT Royale", "CRT Guest", "CRT Light", "Scanlines, light",
+                                 "Scanlines, strong", "Scanlines, OSSC", "Scanlines, dark", "xBRZ", "ScaleFX", "Your own"}});
+    game.features.push_back({"window_size", "Display", "Window size",
+                             "How large the window opens, in times 240 lines (it can be made any size by dragging its "
+                             "edges; full screen is on the launcher's first page and F11).",
+                             0, {"3x", "2x", "4x", "5x", "6x"}});
+}
+
+// The Display page's Shader's presets, in the order of its choices after Off (the folders and files of RetroArch's
+// slang-shaders, copied to shaders/ beside the program by tools/shaders.py), and after them Your own
+namespace {
+    const char *const kShaderPresets[] = {
+        "crt/crt-geom-mini.slangp", "crt/crt-lottes.slangp", "crt/crt-royale.slangp", "crt/crt-guest-advanced-fast.slangp",
+        "crt/zfast-crt.slangp", "scanlines/scanline-fract.slangp", "pixel-art-scaling/sharp-bilinear-scanlines.slangp",
+        "scanlines/ossc.slangp", "scanlines/integer-scaling-scanlines.slangp",
+        "edge-smoothing/xbrz/xbrz-freescale-multipass.slangp", "edge-smoothing/scalefx/scalefx.slangp",
+    };
+    constexpr int kYourOwnShader = 1 + static_cast<int>(std::size(kShaderPresets));
+} // namespace
+
+std::string Port::ShaderPreset() const {
+    if (!opt.shader.empty()) {
+        return opt.shader;
+    }
+    const int value = satrecomp::FeatureValue("display_shader");
+    std::error_code error;
+    if (value == kYourOwnShader) {
+        // (the first .slangp, by name, in shaders/ beside settings.ini)
+        if (opt.settingsPath.empty()) {
+            return "";
+        }
+        std::vector<std::filesystem::path> found;
+        for (const auto &entry : std::filesystem::directory_iterator(std::filesystem::path(opt.settingsPath).parent_path() / "shaders", error)) {
+            if (entry.path().extension() == ".slangp") {
+                found.push_back(entry.path());
+            }
+        }
+        std::sort(found.begin(), found.end());
+        return found.empty() ? "" : found.front().string();
+    }
+    if (value < 1 || value >= kYourOwnShader) {
+        return "";
+    }
+    // (beside the program, or in a macOS app its Resources; SATRECOMP_SHADERS for another folder)
+    if (const char *folder = getenv("SATRECOMP_SHADERS")) {
+        return (std::filesystem::path(folder) / kShaderPresets[value - 1]).string();
+    }
+    const char *base = SDL_GetBasePath();
+    const std::filesystem::path program = base ? std::filesystem::path(base) : std::filesystem::path(".");
+    for (const std::filesystem::path &at : {program / "shaders", program / ".." / "Resources" / "shaders"}) {
+        if (std::filesystem::exists(at / kShaderPresets[value - 1], error)) {
+            return (at / kShaderPresets[value - 1]).string();
+        }
+    }
+    return "";
 }
 
 static bool ReadFile(const std::string &path, std::vector<uint8_t> &out) {
@@ -1179,6 +1254,7 @@ static void Usage(const char *argv0) {
             "  --features A,B         enable optional features (--list-features lists them; -NAME: off)\n"
             "  --settings PATH        settings.ini with the player's feature choices\n"
             "  --fullscreen --scale N --mute --unthrottled\n"
+            "  --shader FILE          draw through that RetroArch shader preset (.slangp), whatever the Display page says\n"
             "  --video MODE           gpu (default in a window): polygons drawn by the GPU at high resolution\n"
             "                         software (default headless): the original resolution, exact\n"
             "  --internal-scale N     gpu: draw polygons at N times the original resolution (default: to fit the window)\n"
@@ -1246,6 +1322,8 @@ int main(int argc, char **argv) {
             o.fullscreen = true;
         } else if (a == "--scale") {
             o.scale = atoi(next().c_str());
+        } else if (a == "--shader") {
+            p.opt.shader = next();
         } else if (a == "--video") {
             p.opt.video = next();
         } else if (a == "--internal-scale") {
