@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed with recomp-common 0.5's menu: until the in-game menu was first opened, its speed was read from
+  before the start of the port's list of speeds (the shared menu keeps -1 for "not chosen yet"), so
+  run-ahead stayed off and the window's pacing and speed note were wrong. It is full speed now.
 - recomp-common 0.5.0 and after (13de85a, and its PR #46: the Your files card says saves): portable mode (`portable.txt` beside the launcher keeps the
   player's folders in `user/` there; the game follows, as it is given its folders by the launcher), a
   launcher that fits a small window, Play at the top of the Game page, dark unless the system says light,

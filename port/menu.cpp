@@ -55,7 +55,9 @@ void Menu::Configure(bool withStates) {
 }
 
 int Menu::Speed() const {
-    return kSpeeds[m_menu.Speed() < static_cast<int>(std::size(kSpeeds)) ? m_menu.Speed() : 0];
+    // (the shared menu's place in the list, which is -1 until the menu is first told of the list: full speed)
+    const int at = m_menu.Speed();
+    return kSpeeds[at >= 0 && at < static_cast<int>(std::size(kSpeeds)) ? at : 0];
 }
 
 void Menu::SetSpeed(int speed) {
