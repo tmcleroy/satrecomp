@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- recomp-common 0.5.0 and after (13de85a): portable mode (`portable.txt` beside the launcher keeps the
+  player's folders in `user/` there; the game follows, as it is given its folders by the launcher), a
+  launcher that fits a small window, Play at the top of the Game page, dark unless the system says light,
+  a sidebar scrolled by a finger, a feature's choices that can be shortened for the in-game menu
+  (`kFeatureMenuChoices`), and the in-game menu's Speed and Mute on a page of their own where a port says
+  (`MenuPage::rows`). The online, collection and update parts are not used by the toolkit.
 - Run-ahead (the port's `run_ahead` feature: off, 1 or 2 frames): the frames after each are run and
   shown, then the game is put back, so a press is seen a frame or two sooner and the game runs exactly
   as without it (state hashes the same frame for frame). `RunningAhead()` for a game's sources;

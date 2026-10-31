@@ -251,4 +251,39 @@ void SetPreset(Ini &ini, const std::vector<FeatureInfo> &features, const std::st
     }
 }
 
+std::vector<bool> MenuChoices(const Ini &ini, const FeatureInfo &feature) {
+    std::vector<bool> offered(feature.choices.size(), true);
+    const std::string list = ini.get("menu", feature.name);
+    if (!(feature.flags & kFeatureMenuChoices) || list.empty()) {
+        return offered;
+    }
+    std::fill(offered.begin(), offered.end(), false);
+    std::istringstream in(list);
+    for (std::string number; std::getline(in, number, ',');) {
+        char *end = nullptr;
+        const long choice = std::strtol(number.c_str(), &end, 10);
+        if (end != number.c_str() && choice > 0 && choice < static_cast<long>(offered.size())) {
+            offered[static_cast<size_t>(choice)] = true;
+        }
+    }
+    if (!offered.empty()) {
+        offered[0] = true;
+    }
+    return offered;
+}
+
+void SetMenuChoices(Ini &ini, const FeatureInfo &feature, const std::vector<bool> &offered) {
+    std::string list;
+    bool all = true;
+    for (size_t choice = 1; choice < feature.choices.size(); choice++) {
+        if (choice < offered.size() && offered[choice]) {
+            list += (list.empty() ? "" : ",") + std::to_string(choice);
+        } else {
+            all = false;
+        }
+    }
+    // (none but off: "0", which offers off alone)
+    ini.set("menu", feature.name, all ? "" : list.empty() ? "0" : list);
+}
+
 } // namespace recomp

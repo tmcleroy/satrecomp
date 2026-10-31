@@ -10,21 +10,32 @@
 //                                                       by one: u d l r arrow keys, e Enter, s Space, x Esc;
 //                                                       of a gamepad made for the test: U D L R the d-pad,
 //                                                       A B the buttons, [ ] the shoulders; 0-9 that page;
-//                                                       . a wait)
+//                                                       . a wait; f Ctrl+F; "text" typed; the mouse:
+//                                                       @X,Y; moved there (in the window), ( and ) its
+//                                                       left button pressed and let go)
 //   <id>-launcher --play                               (straight into the game set up earlier)
-// <ID>_HOME=folder (LAUNCHER_HOME_ENV) uses that folder instead of the player's (settings, launcher.ini).
+//   <id>-launcher --play ID                            (a collection's: straight into that game)
+//   <id>-launcher --play [ID] -- ARGS...               (and ARGS given to the game after the launcher's own)
+//   <id>-launcher --page ID                            (a collection's: opens on that game's page)
+// <ID>_HOME=folder (LAUNCHER_HOME_ENV) uses that folder instead of the player's (settings, launcher.ini; a
+// collection's games each in a folder named by its id in it).
+// portable.txt beside the launcher (on macOS beside the app) keeps the player's folders in user/ there (folders.h).
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
 #include <algorithm>
+#include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "app.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
+#include "imgui_internal.h"
 #include "ui.h"
 
 namespace {
@@ -49,8 +60,18 @@ bool save_picture(SDL_Renderer* renderer, const std::string& path) {
     return saved;
 }
 
+// A phone's Back is the launcher's Esc
+void back_is_escape(SDL_Event& event) {
+    if ((event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) && event.key.scancode == SDL_SCANCODE_AC_BACK) {
+        event.key.scancode = SDL_SCANCODE_ESCAPE;
+        event.key.key = SDLK_ESCAPE;
+    }
+}
+
+// Dark unless the system says light: where it says nothing (Steam's Gaming Mode, which has no desktop to ask; a
+// desktop with no preference) the launcher matches Steam's own dark look
 bool system_dark() {
-    return SDL_GetSystemTheme() == SDL_SYSTEM_THEME_DARK;
+    return SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT;
 }
 
 // --press: keys as the window would get them, and the buttons of a gamepad that exists only in the program.
@@ -74,6 +95,38 @@ struct Presser {
         desc.name = "Test gamepad";
         pad = SDL_OpenJoystick(SDL_AttachVirtualJoystick(&desc));
     }
+    // A character typed, as a window gets it when its text is being typed in
+    void type(char character) {
+        static char text[256][2];
+        unsigned char c = static_cast<unsigned char>(character);
+        text[c][0] = character;
+        SDL_Event event{};
+        event.type = SDL_EVENT_TEXT_INPUT;
+        event.text.windowID = SDL_GetWindowID(window);
+        event.text.text = text[c];
+        SDL_PushEvent(&event);
+    }
+    // The mouse: moved to a place in the window, its left button pressed or let go
+    void mouse_to(float x, float y) {
+        SDL_Event event{};
+        event.type = SDL_EVENT_MOUSE_MOTION;
+        event.motion.windowID = SDL_GetWindowID(window);
+        event.motion.x = mouse_x = x;
+        event.motion.y = mouse_y = y;
+        SDL_PushEvent(&event);
+    }
+    void mouse_button(bool down) {
+        SDL_Event event{};
+        event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+        event.button.windowID = SDL_GetWindowID(window);
+        event.button.button = SDL_BUTTON_LEFT;
+        event.button.down = down;
+        event.button.clicks = 1;
+        event.button.x = mouse_x;
+        event.button.y = mouse_y;
+        SDL_PushEvent(&event);
+    }
+    float mouse_x = 0.0f, mouse_y = 0.0f;
     void set(char key, bool down) {
         static const struct {
             char key;
@@ -81,7 +134,7 @@ struct Presser {
             SDL_Keycode keycode;
         } kKeys[] = {{'u', SDL_SCANCODE_UP, SDLK_UP},         {'d', SDL_SCANCODE_DOWN, SDLK_DOWN},   {'l', SDL_SCANCODE_LEFT, SDLK_LEFT},
                      {'r', SDL_SCANCODE_RIGHT, SDLK_RIGHT},   {'e', SDL_SCANCODE_RETURN, SDLK_RETURN}, {'s', SDL_SCANCODE_SPACE, SDLK_SPACE},
-                     {'x', SDL_SCANCODE_ESCAPE, SDLK_ESCAPE}};
+                     {'x', SDL_SCANCODE_ESCAPE, SDLK_ESCAPE}, {'f', SDL_SCANCODE_F, SDLK_F}};
         static const struct {
             char key;
             SDL_GamepadButton button;
@@ -96,6 +149,7 @@ struct Presser {
                 event.key.scancode = known.scancode;
                 event.key.key = known.keycode;
                 event.key.down = down;
+                event.key.mod = key == 'f' ? SDL_KMOD_LCTRL : SDL_KMOD_NONE;  // (f: Ctrl+F)
                 SDL_PushEvent(&event);
             }
         }
@@ -107,6 +161,92 @@ struct Presser {
     }
 };
 
+// A touch screen's: a finger dragged up or down scrolls what is under it (and goes on a little when let go, as a phone's
+// lists do), and is then not a press of what it started on. A tap is still a click (SDL makes a mouse of the finger).
+// The sidebar's list scrolls the same way (App::scroll_sidebar).
+struct TouchScroll {
+    SDL_Window* window = nullptr;
+    App* app = nullptr;
+    SDL_FingerID finger = 0;
+    bool down = false, dragging = false, sidebar = false;
+    float start_x = 0.0f, start_y = 0.0f, last_y = 0.0f, speed = 0.0f;  // (in the window's points)
+    ImGuiWindow* target = nullptr;
+
+    // The event is the scroll's (not to be given to Dear ImGui)
+    bool consume(const SDL_Event& event) {
+        int width = 0, height = 0;
+        SDL_GetWindowSize(window, &width, &height);
+        switch (event.type) {
+        case SDL_EVENT_FINGER_DOWN:
+            if (!down) {
+                down = true;
+                dragging = false;
+                finger = event.tfinger.fingerID;
+                start_x = event.tfinger.x * width;
+                start_y = last_y = event.tfinger.y * height;
+                speed = 0.0f;
+                // (a finger's drag is a scroll before it is a row dragged to another place: Dear ImGui waits longer)
+                ImGui::GetIO().MouseDragThreshold = 24.0f * ui::scale();
+            }
+            return false;
+        case SDL_EVENT_FINGER_MOTION:
+            if (down && event.tfinger.fingerID == finger) {
+                const float y = event.tfinger.y * height;
+                if (!dragging && std::fabs(y - start_y) > 10.0f * ui::scale()) {
+                    // (the sidebar's list, or the window under the finger, or the nearest around it that scrolls)
+                    sidebar = app->scroll_sidebar(start_x, 0.0f);
+                    target = sidebar ? nullptr : ImGui::GetCurrentContext()->HoveredWindow;
+                    while (target && target->ScrollMax.y <= 0.0f && target->ParentWindow) {
+                        target = target->ParentWindow;
+                    }
+                    dragging = sidebar || (target && target->ScrollMax.y > 0.0f);
+                    if (dragging) {
+                        // (the mouse taken away: what the finger went down on is not clicked when it is lifted)
+                        ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+                        last_y = y;
+                    }
+                }
+                if (dragging) {
+                    scroll(last_y - y);
+                    speed = speed * 0.5f + (last_y - y) * 0.5f;
+                    last_y = y;
+                }
+            }
+            return dragging;
+        case SDL_EVENT_FINGER_UP:
+        case SDL_EVENT_FINGER_CANCELED:
+            if (event.tfinger.fingerID == finger) {
+                down = false;
+            }
+            return false;
+        case SDL_EVENT_MOUSE_MOTION:
+            return dragging && event.motion.which == SDL_TOUCH_MOUSEID;  // (the finger's, as a mouse)
+        default:
+            return false;
+        }
+    }
+    void scroll(float by) {
+        if (sidebar) {
+            app->scroll_sidebar(start_x, by);
+        } else if (target) {
+            ImGui::SetScrollY(target, std::clamp(target->Scroll.y + by, 0.0f, target->ScrollMax.y));
+        }
+    }
+    // Each frame: after the finger is lifted, the scroll slows to a stop
+    void frame() {
+        if (down || !dragging) {
+            return;
+        }
+        scroll(speed);
+        speed *= 0.92f;
+        if (std::fabs(speed) < 0.5f) {
+            dragging = sidebar = false;
+            target = nullptr;
+        }
+        ui::request_frames(2);
+    }
+};
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -114,9 +254,14 @@ int main(int argc, char** argv) {
     std::string press;
     bool pressing = false;
     bool play = false;
+    std::string play_id, page_id;
+    std::vector<std::string> extra;  // (after --: the game's)
     int width = 980, height = 660;
     for (int i = 1; i < argc; i++) {
-        if (std::strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
+        if (std::strcmp(argv[i], "--") == 0) {
+            extra.assign(argv + i + 1, argv + argc);
+            break;
+        } else if (std::strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
             screenshot_prefix = argv[++i];
         } else if (std::strcmp(argv[i], "--size") == 0 && i + 1 < argc) {
             if (std::sscanf(argv[++i], "%dx%d", &width, &height) != 2 || width < 320 || height < 240) {
@@ -127,12 +272,21 @@ int main(int argc, char** argv) {
             pressing = true;
         } else if (std::strcmp(argv[i], "--play") == 0) {
             play = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                play_id = argv[++i];
+            }
+        } else if (std::strcmp(argv[i], "--page") == 0 && i + 1 < argc) {
+            page_id = argv[++i];
         }
     }
     SDL_SetAppMetadata(LAUNCHER_GAME_NAME, "0.1", LAUNCHER_APP_ID ".launcher");
+    if (!prepare_folders(screenshot_prefix.empty())) {  // (portable mode's folder; pictures for a test ask nothing)
+        SDL_Quit();
+        return 1;
+    }
     if (play) {
         // Straight into the game, e.g. from a Steam shortcut in Game Mode.
-        int code = play_directly();
+        int code = play_directly(play_id, extra);
         SDL_Quit();
         return code;
     }
@@ -144,14 +298,24 @@ int main(int argc, char** argv) {
     if (scale <= 0.0f) {
         scale = 1.0f;
     }
-    SDL_Window* window = SDL_CreateWindow(LAUNCHER_GAME_NAME, static_cast<int>(width * scale), static_cast<int>(height * scale),
+    // (no bigger than the screen: a small one, or one with large text, has less room than the launcher would take)
+    int window_width = static_cast<int>(width * scale), window_height = static_cast<int>(height * scale);
+    int least_width = static_cast<int>(600 * scale), least_height = static_cast<int>(400 * scale);
+    SDL_Rect usable;
+    if (SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &usable)) {
+        window_width = std::min(window_width, usable.w);
+        window_height = std::min(window_height, usable.h);
+        least_width = std::min(least_width, usable.w);
+        least_height = std::min(least_height, usable.h);
+    }
+    SDL_Window* window = SDL_CreateWindow(LAUNCHER_GAME_NAME, window_width, window_height,
                                           SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     SDL_Renderer* renderer = window ? SDL_CreateRenderer(window, nullptr) : nullptr;
     if (!renderer) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, LAUNCHER_GAME_NAME, SDL_GetError(), nullptr);
         return 1;
     }
-    SDL_SetWindowMinimumSize(window, static_cast<int>(800 * scale), static_cast<int>(540 * scale));
+    SDL_SetWindowMinimumSize(window, least_width, least_height);
     SDL_SetRenderVSync(renderer, 1);
     SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
@@ -175,14 +339,21 @@ int main(int argc, char** argv) {
     ui::set_dark(system_dark());
     ui::apply_style(SDL_GetWindowDisplayScale(window));
     App app(window);
+    if (!page_id.empty()) {
+        app.set_page(page_id);
+    }
     if (screenshot_prefix.empty()) {  // (pictures are taken with nothing put on the screen)
         SDL_ShowWindow(window);
         app.set_interactive();
     }
+    TouchScroll touch;
+    touch.window = window;
+    touch.app = &app;
     Presser presser;
     presser.window = window;
     presser.start(press);
     size_t press_at = 0;
+    bool typing = false;  // (between quotes in --press)
 
     Uint64 previous = SDL_GetTicksNS();
     int shot_page = 0;
@@ -192,14 +363,16 @@ int main(int argc, char** argv) {
         bool idle = screenshot_prefix.empty() && !ui::animating() && !app.busy();
         SDL_Event event;
         if (idle && SDL_WaitEventTimeout(&event, 250)) {
-            if (!app.consume(event)) {
+            back_is_escape(event);
+            if (!touch.consume(event) && !app.consume(event)) {
                 ImGui_ImplSDL3_ProcessEvent(&event);
             }
             running = event.type != SDL_EVENT_QUIT && event.type != SDL_EVENT_WINDOW_CLOSE_REQUESTED;
             ui::request_frames(3);
         }
         while (SDL_PollEvent(&event)) {
-            if (!app.consume(event)) {
+            back_is_escape(event);
+            if (!touch.consume(event) && !app.consume(event)) {
                 ImGui_ImplSDL3_ProcessEvent(&event);
             }
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
@@ -223,20 +396,38 @@ int main(int argc, char** argv) {
         ImGui_ImplSDLRenderer3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        if (!screenshot_prefix.empty() && shot_frames == 0 && !pressing) {
+        touch.frame();
+        if (!screenshot_prefix.empty() && shot_frames == 0 && !pressing && page_id.empty()) {
             app.set_page(shot_page);
         }
-        if (pressing && shot_frames >= 10 && press_at < press.size() && !app.busy()) {
+        if (pressing && shot_frames >= 10 && press_at < press.size() && app.ready_for_keys()) {
             // One key every eight frames: down for four of them
             int step = (shot_frames - 10) % 8;
             char key = press[press_at];
-            if (step == 0 && key >= '0' && key <= '9') {
+            if (key == '"' || typing) {
+                if (step == 0 && key == '"') {
+                    typing = !typing;
+                } else if (step == 0) {
+                    presser.type(key);
+                }
+            } else if (key == '@') {
+                float x = 0.0f, y = 0.0f;
+                if (step == 0 && std::sscanf(press.c_str() + press_at + 1, "%f,%f", &x, &y) == 2) {
+                    presser.mouse_to(x, y);
+                }
+            } else if (step == 0 && (key == '(' || key == ')')) {
+                presser.mouse_button(key == '(');
+            } else if (step == 0 && key >= '0' && key <= '9') {
                 app.set_page(std::min(key - '0', app.page_count() - 1));
             } else if (step == 0) {
                 presser.set(key, true);
             } else if (step == 4) {
                 presser.set(key, false);
-            } else if (step == 7 && ++press_at == press.size()) {
+            }
+            if (step == 7 && key == '@' && !typing) {
+                press_at = std::min(press.find(';', press_at), press.size() - 1);  // (past X,Y)
+            }
+            if (step == 7 && ++press_at == press.size()) {
                 shot_frames = -1;  // (and then the picture, as for a page)
                 press.clear();
             }
