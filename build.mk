@@ -52,12 +52,13 @@ all: port
 
 # Neither Ymir nor the patch that makes it the reference machine is part of this repository (a patch quotes the
 # source it changes). Ymir is fetched here, at the commit the patch is for, into a folder git ignores; the patch
-# is looked for beside this repository.
-SATRECOMP_REFERENCE ?= ../satrecomp-reference
+# is in the folder SATRECOMP_REFERENCE names (it is not published).
+SATRECOMP_REFERENCE ?=
 YMIR_PATCH := $(abspath $(SATRECOMP_REFERENCE))/ymir-satrecomp.patch
 YMIR_URL := https://github.com/StrikerX3/Ymir.git
 YMIR_COMMIT := 58e7643cf4f12a4b21207b7fa86f9deb535acb2b
 setup:
+	@[ -n "$(SATRECOMP_REFERENCE)" ] || { echo "make setup: the reference build needs the reference patch: set SATRECOMP_REFERENCE to the folder it is in"; exit 1; }
 	@[ -f "$(YMIR_PATCH)" ] || { echo "make setup: no $(YMIR_PATCH): the reference build needs the reference patch (set SATRECOMP_REFERENCE to its folder)"; exit 1; }
 	@if [ ! -d $(YMIR)/.git ]; then mkdir -p $(YMIR) && git -C $(YMIR) init -q && git -C $(YMIR) remote add origin $(YMIR_URL); fi
 	@if [ "$$(git -C $(YMIR) rev-parse -q --verify HEAD 2>/dev/null)" != "$(YMIR_COMMIT)" ]; then \
