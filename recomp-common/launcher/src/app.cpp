@@ -2888,9 +2888,9 @@ void App::files_card(float width) {
 #else
     const char* beside = "beside the launcher";
 #endif
-    const std::string about = !portable.empty() ? std::string("Settings, save states, each board's memory and the logs. Take portable.txt away from ") +
+    const std::string about = !portable.empty() ? std::string("Settings, saves, save states and the logs. Take portable.txt away from ") +
                                                       beside + " to use your user folder again; nothing is moved."
-                                                : std::string("Settings, save states, each board's memory and the logs. To keep them with the launcher "
+                                                : std::string("Settings, saves, save states and the logs. To keep them with the launcher "
                                                               "instead, on a drive you carry, put a file named portable.txt ") +
                                                       beside + ".";
     ui::text(about.c_str(), Font::Regular, ui::size::kDetail, p.secondary, width);

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- recomp-common 0.5.0 and after (13de85a): portable mode (`portable.txt` beside the launcher keeps the
+- recomp-common 0.5.0 and after (13de85a, and its PR #46: the Your files card says saves): portable mode (`portable.txt` beside the launcher keeps the
   player's folders in `user/` there; the game follows, as it is given its folders by the launcher), a
   launcher that fits a small window, Play at the top of the Game page, dark unless the system says light,
   a sidebar scrolled by a finger, a feature's choices that can be shortened for the in-game menu
