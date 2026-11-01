@@ -645,6 +645,14 @@ bool Port::Init() {
     satrecomp::Options ro;
     ro.mode = satrecomp::Mode::Native;
     ro.recordPath = opt.recordBlocks;
+#ifdef GAME_FINE_SLICES
+    {
+        unsigned lo = 0, hi = 0;
+        if (sscanf(GAME_FINE_SLICES, "%x-%x", &lo, &hi) == 2) {
+            sat.SetFineSlices(lo, hi);
+        }
+    }
+#endif
     const char *sync = getenv("SATRECOMP_SYNC_POINTS");
     for (const char *v = sync ? sync : GAME_SYNC_POINTS; *v;) {
         char *end;

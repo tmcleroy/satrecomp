@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- A second game, Fighters Megamix, starts on the toolkit. What it needed:
+  - `runtime/shared_lifts.h`: the replaced routines of Sega's libraries (the file system's Open, Start, Poll,
+    Close and Fread; the CD library's CdPlay, CdSeek and GetCurStat; the peripheral library's SendCommand) and
+    of Sega AM2's engine (LoadFile, ReadPads), moved out of Fighting Vipers' sources. They take every address
+    they use from the routine's own code, so a game only registers each at its address
+    (`shared::Register(shared::kGfsOpen, 0x06044D78)`). Fighting Vipers runs the same, state hash for hash.
+    `Guest::PC()`. `SATRECOMP_PER_CHECK=1` (was `FV_PER_CHECK`).
+  - The CD drive gives data sectors: read into its buffer while playing, counted (51), sized (52, 53),
+    described (54), taken through the data port (61, 63; also at 0x25818000) and deleted (62, 63); it pauses
+    with "play end" the moment the last sector asked for is in (as Ymir's does), and reports a subcode read
+    with every periodic report, the drive stopped too. `SATRECOMP_CD_TRACE=1` on the own machine.
+  - The SH-2's cache purge area (0x40000000-0x5FFFFFFF) takes writes without touching memory (they were
+    written to work RAM: every sixteenth byte of a DMA buffer cleared).
+  - The SCU offers the highest interrupt that is raised and not masked, also when a lower one was offered
+    and not yet taken.
+  - `fine_slices = lo-hi` in game.cfg: code during which the two CPUs always alternate in short slices.
 - The Display page, for every game: **Scaling** (sharp, whole pixels, smooth), **Picture shape** (4:3, square
   pixels, fill), **Window size** (2x to 6x) and **Shader**: the picture through one of RetroArch's slang presets
   (CRT, CRT Lottes, CRT Royale, CRT Guest, CRT Light, four kinds of scanlines, xBRZ, ScaleFX, or your own) by

@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Tommy McLeroy. Part of satrecomp: https://github.com/tmcleroy/satrecomp
-// The CD drive's host interface, as far as the game still uses it. Files, the opening movie's data and CD
-// music are read by the port itself (games/<id>/src); what is left are the commands the game's CD library
-// gives when it starts (and when the movie player does): status, table of contents, set-up of the buffer's
-// filters, seeks, and a "play" that only has to be seen to be going.
+// The CD drive's host interface, as far as the games still use it. Files, movie data and CD music are mostly
+// read by the port itself (games/<id>/src: the game's library routines replaced); what is left are the
+// commands a CD library gives when it starts: status, table of contents, set-up of the buffer's filters,
+// seeks; and data sectors read into the buffer and taken through the data port, for library code that has
+// not been replaced (Fighters Megamix's second program reads the disc's directory that way). The buffer is
+// one partition; the filters are not applied.
 #include "machine.h"
+#include "lift.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <iterator>
 
 namespace satrecomp::machine {
@@ -36,8 +40,26 @@ void Machine::CdReset() {
 
 uint16 Machine::CdRead(uint32 address) {
     auto &cd = m_cd;
-    if (address >= 0x98000 || (address & 0xFFFF) < 0x08) { // the data port
-        return cd.transferOffset < cd.transferSize ? cd.transfer[cd.transferOffset++] : 0xFFFF;
+    if (address < 0x90000 || address >= 0x98000 || (address & 0xFFFF) < 0x08) { // the data port (0x25818000, 0x25898000)
+        if (cd.transferOffset >= cd.transferSize) {
+            return 0xFFFF;
+        }
+        const uint32 offset = cd.transferOffset++;
+        if (cd.transferSectors == 0) {
+            return cd.transfer[offset];
+        }
+        // (a sector's data, read from the disc when the transfer comes to it)
+        static uint8 sector[2048];
+        static uint32 sectorFAD = 0xFFFFFFFF;
+        const uint32 fad = cd.transferFAD[offset / 1024];
+        if (fad != sectorFAD) {
+            sectorFAD = fad;
+            if (!satrecomp::ReadDiscSector(fad, sector)) {
+                std::fill(std::begin(sector), std::end(sector), 0);
+            }
+        }
+        const uint32 at = (offset % 1024) * 2;
+        return static_cast<uint16>((sector[at] << 8) | sector[at + 1]);
     }
     switch (address & 0x3C) {
     case 0x08: return cd.HIRQ;
@@ -100,6 +122,7 @@ void Machine::CdCommand() {
     case 0x02: { // table of contents: 102 long words at the data port
         std::fill(std::begin(cd.transfer), std::end(cd.transfer), 0xFFFF);
         cd.transferSize = 204;
+        cd.transferSectors = 0;
         auto entry = [&](size_t index, uint32 value) {
             cd.transfer[index * 2] = static_cast<uint16>(value >> 16);
             cd.transfer[index * 2 + 1] = static_cast<uint16>(value);
@@ -143,12 +166,13 @@ void Machine::CdCommand() {
             cd.CR[0] = static_cast<uint16>((cd.status << 8) | 0xFF);
             cd.CR[1] = 0xFFFF;
         } else {
-            cd.CR[0] = static_cast<uint16>(cd.status << 8);
+            cd.CR[0] = static_cast<uint16>((cd.status << 8) | ((cd.transferOffset >> 16) & 0xFF));
             cd.CR[1] = static_cast<uint16>(cd.transferOffset);
         }
         cd.CR[2] = cd.CR[3] = 0;
         cd.transferSize = 0;
         cd.transferOffset = 0;
+        cd.transferSectors = 0;
         flags |= kEHST;
         break;
     case 0x10: { // play from a frame address, for a number of sectors
@@ -202,8 +226,54 @@ void Machine::CdCommand() {
     case 0x51: // sectors in a buffer partition
         cd.CR[0] = static_cast<uint16>(cd.status << 8);
         cd.CR[1] = cd.CR[2] = 0;
-        cd.CR[3] = 0;
+        cd.CR[3] = static_cast<uint16>(cd.buffered);
         break;
+    case 0x52: { // calculate the actual size of sectors: offset, partition, count
+        uint32 first = 0, count = 0;
+        CdSectorRange(first, count);
+        cd.actualSize = count * 1024;
+        CdReport(cd.status);
+        flags |= kESEL;
+        break;
+    }
+    case 0x53: // the actual size (words)
+        cd.CR[0] = static_cast<uint16>((cd.status << 8) | ((cd.actualSize >> 16) & 0xFF));
+        cd.CR[1] = static_cast<uint16>(cd.actualSize);
+        cd.CR[2] = cd.CR[3] = 0;
+        break;
+    case 0x54: { // a sector's information: its frame address, file and channel, submode and coding
+        uint32 first = 0, count = 0;
+        CdSectorRange(first, count);
+        const uint32 fad = count ? cd.bufferFAD[first] : 0;
+        cd.CR[0] = static_cast<uint16>((cd.status << 8) | ((fad >> 16) & 0xFF));
+        cd.CR[1] = static_cast<uint16>(fad);
+        cd.CR[2] = cd.CR[3] = 0;
+        flags |= kESEL;
+        break;
+    }
+    case 0x61: // sectors' data to the data port
+    case 0x62: // sectors deleted from the buffer
+    case 0x63: { // both
+        uint32 first = 0, count = 0;
+        CdSectorRange(first, count);
+        if (command != 0x62) {
+            std::copy(cd.bufferFAD + first, cd.bufferFAD + first + count, cd.transferFAD);
+            cd.transferSectors = count;
+            cd.transferSize = count * 1024;
+            cd.transferOffset = 0;
+            flags |= kDRDY;
+        }
+        if (command != 0x61) {
+            std::copy(cd.bufferFAD + first + count, cd.bufferFAD + cd.buffered, cd.bufferFAD + first);
+            cd.buffered -= count;
+            cd.HIRQ &= ~kBFUL;
+            if (command == 0x62) {
+                flags |= kEHST;
+            }
+        }
+        CdReport(cd.status);
+        break;
+    }
     case 0x75: // abort file
         CdReport(cd.status);
         flags |= kEFLS;
@@ -226,6 +296,12 @@ void Machine::CdCommand() {
     }
     cd.HIRQ |= flags;
     cd.responseTaken = false;
+    // Debugging aid (SATRECOMP_CD_TRACE=1): every command and the response
+    static const bool trace = getenv("SATRECOMP_CD_TRACE") != nullptr;
+    if (trace) {
+        fprintf(stderr, "cd cmd %04X %04X %04X %04X -> %04X %04X %04X %04X (HIRQ %04X)\n", cd.command[0], cd.command[1], cd.command[2],
+                cd.command[3], cd.CR[0], cd.CR[1], cd.CR[2], cd.CR[3], cd.HIRQ);
+    }
 }
 
 // 150 times a second while the drive reads (data is read at double speed): a sector goes into the buffer,
@@ -233,9 +309,7 @@ void Machine::CdCommand() {
 void Machine::CdPeriodic() {
     auto &cd = m_cd;
     cd.periodicDue += m_clock / 150;
-    if (cd.status != 0x02) {
-        cd.HIRQ |= kSCDQ; // (a disc that is turning: its subcode is read all the time)
-    }
+    cd.HIRQ |= kSCDQ; // (with every periodic report, the drive stopped too: Fighters Megamix's file library waits for it)
     if (cd.responseTaken) {
         CdReport(cd.status | 0x20); // the periodic report (marked as one)
     }
@@ -249,14 +323,29 @@ void Machine::CdPeriodic() {
         ++g_activity;
         return;
     }
+    cd.bufferFAD[cd.buffered++] = cd.fad;
     cd.fad++;
-    cd.buffered++;
     cd.HIRQ |= kCSCT;
-    if (cd.buffered >= kBufferSectors) {
+    if (cd.fad >= cd.playEnd) {
+        // (the last sector asked for: the drive pauses there at once, as Ymir's does; Fighters Megamix's movie
+        // player looks at the status straight after taking that sector)
+        cd.reading = false;
+        cd.status = 0x01;
+        cd.HIRQ |= kPEND;
+    } else if (cd.buffered >= kBufferSectors) {
         cd.reading = false; // (it waits there, still "playing", until the buffer is emptied)
         cd.HIRQ |= kBFUL;
     }
     ++g_activity;
+}
+
+// The sectors a command names: CR2 the first (0xFFFF: the last one), CR4 how many (0xFFFF: to the end), in
+// the buffer as it is (one partition)
+void Machine::CdSectorRange(uint32 &first, uint32 &count) {
+    auto &cd = m_cd;
+    const uint32 offset = cd.command[1], wanted = cd.command[3];
+    first = offset == 0xFFFF ? (cd.buffered ? cd.buffered - 1 : 0) : std::min<uint32>(offset, cd.buffered);
+    count = wanted == 0xFFFF ? cd.buffered - first : std::min<uint32>(wanted, cd.buffered - first);
 }
 
 } // namespace satrecomp::machine

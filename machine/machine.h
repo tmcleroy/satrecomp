@@ -46,6 +46,12 @@ public:
 
     // The ROM area (512 KiB): the port puts the BIOS's vectors there (runtime/hle_bios.cpp)
     void LoadRom(const uint8 *data, size_t size);
+    // Code (work RAM addresses lo..hi) that needs the two CPUs to alternate in short slices whenever either runs
+    // it, as the hardware runs them side by side (game.cfg fine_slices: Fighters Megamix's movie player)
+    void SetFineSlices(uint32 lo, uint32 hi) {
+        m_fineLo = lo & 0x07FFFFFF;
+        m_fineHi = hi & 0x07FFFFFF;
+    }
     void SetDisc(const Disc &disc) {
         m_disc = disc;
     }
@@ -97,6 +103,7 @@ private:
     // After one CPU has signalled the other, they alternate in short slices for this long
     static constexpr uint64 kFineCyclesAfterSignal = 20000;
     uint64 m_fineCycles = 0;
+    uint32 m_fineLo = 0, m_fineHi = 0; // code where the two CPUs always alternate in short slices (SetFineSlices)
     uint32 m_clock = 26846591; // SH-2 cycles a second (changes with the dot clock: 320 or 352 dots a line)
     bool m_clock352 = false;
 
@@ -202,10 +209,14 @@ private:
         uint32 fad = 150;     // where the drive's pickup is
         uint32 playEnd = 0;
         uint32 buffered = 0;  // sectors read into the buffer and not taken
+        uint32 bufferFAD[200] = {}; // ... their frame addresses, oldest first
         bool reading = false;
         bool responseTaken = true; // the last command's response has been read
-        uint16 transfer[204] = {}; // words waiting at the data port (the TOC)
-        uint32 transferSize = 0, transferOffset = 0;
+        uint16 transfer[204] = {}; // words waiting at the data port: the TOC, or
+        uint32 transferFAD[200] = {}; // sectors from the buffer, by frame address (transferSectors of them)
+        uint32 transferSectors = 0;
+        uint32 transferSize = 0, transferOffset = 0; // in words
+        uint32 actualSize = 0; // words, as worked out by "calculate actual size"
         uint64 periodicDue = 0;
     } m_cd;
     void CdReset();
@@ -214,6 +225,7 @@ private:
     void CdCommand();
     void CdReport(uint8 status);
     void CdPeriodic();
+    void CdSectorRange(uint32 &first, uint32 &count);
 };
 
 } // namespace satrecomp::machine

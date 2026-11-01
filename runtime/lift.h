@@ -29,6 +29,8 @@ public:
 
     uint32_t &R(unsigned n);
     uint32_t PR() const;
+    // Where the CPU is: in a lifted routine, before it has done anything, the routine's own address
+    uint32_t PC() const;
     uint32_t GBR() const;
     uint8_t Read8(uint32_t address);
     uint16_t Read16(uint32_t address);

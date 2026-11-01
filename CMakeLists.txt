@@ -48,7 +48,7 @@ add_executable(${GAME}
     video/renderer.cpp video/regs.cpp video/layers.cpp video/vdp1.cpp video/raster.cpp video/gpu.cpp
     sound/chip.cpp sound/m68k.cpp sound/state.cpp
     machine/sh2.cpp machine/machine.cpp machine/vdp.cpp machine/cd.cpp machine/state.cpp
-    runtime/music.cpp runtime/backup.cpp runtime/game.cpp
+    runtime/music.cpp runtime/shared_lifts.cpp runtime/backup.cpp runtime/game.cpp
     runtime/recomp.cpp
     runtime/hle_bios.cpp
     ${GEN_SOURCES}
@@ -107,7 +107,7 @@ add_subdirectory("${YMIR_DIR}/libs/ymir-core" ymir-core EXCLUDE_FROM_ALL)
         port/frontend_sdl.cpp port/shading.cpp port/menu.cpp port/hud.cpp recomp-common/menu.cpp recomp-common/settings.cpp
         video/renderer.cpp video/regs.cpp video/ymir_adapter.cpp video/layers.cpp video/vdp1.cpp video/raster.cpp video/gpu.cpp
         sound/generator.cpp sound/chip.cpp sound/m68k.cpp sound/state.cpp
-        runtime/music.cpp runtime/game.cpp
+        runtime/music.cpp runtime/shared_lifts.cpp runtime/game.cpp
         runtime/recomp.cpp
         runtime/hle_bios.cpp
         runtime/m68k_recomp.cpp
