@@ -132,7 +132,9 @@ void Machine::Run() {
             uint64 slaveCycles = m_slaveSpillover;
             do {
                 const bool masterWaits = masterSH2.RecompWaiting(), slaveWaits = slaveSH2.RecompWaiting();
-                const uint64 step = masterWaits == slaveWaits && !m_fineCycles ? cycles : 32;
+                const bool fineCode = m_fineHi && (((masterSH2.PC & 0x07FFFFFF) - m_fineLo) < m_fineHi - m_fineLo ||
+                                                   ((slaveSH2.PC & 0x07FFFFFF) - m_fineLo) < m_fineHi - m_fineLo);
+                const uint64 step = masterWaits == slaveWaits && !m_fineCycles && !fineCode ? cycles : 32;
                 const uint64 target = std::min(executed + step, cycles);
                 const uint64 before = executed;
                 executed = masterSH2.Advance(target, executed);
@@ -369,18 +371,24 @@ void Machine::ScuRaise(unsigned interrupt) {
     }
 }
 
-// The interrupt offered to the master CPU: the lowest numbered one that is raised and not masked
+// The interrupt offered to the master CPU: the lowest numbered one that is raised and not masked. One that
+// is offered and not yet taken (the CPU's own mask may be above its level) gives way to a higher one raised
+// since, and is raised again. (pendingLevel: the level offered in the low four bits, its number above them)
 void Machine::ScuUpdateInterrupt() {
-    if (m_scu.pendingLevel > 0) {
-        return;
-    }
     const uint32 bits = m_scu.status & ~m_scu.mask & 0x3FFF;
     if (!bits) {
         return;
     }
     static constexpr uint8 kLevels[14] = {15, 14, 13, 12, 11, 10, 9, 8, 8, 6, 6, 5, 3, 2};
     const unsigned index = static_cast<unsigned>(std::countr_zero(bits));
-    m_scu.pendingLevel = kLevels[index];
+    if (m_scu.pendingLevel > 0) {
+        const unsigned offered = m_scu.pendingLevel >> 4;
+        if (index >= offered) {
+            return;
+        }
+        m_scu.status |= 1u << offered;
+    }
+    m_scu.pendingLevel = static_cast<uint8>(kLevels[index] | (index << 4));
     m_scu.status &= ~(1u << index);
     masterSH2.SetExternalInterrupt(kLevels[index], static_cast<uint8>(0x40 + index));
 }

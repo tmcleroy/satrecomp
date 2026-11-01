@@ -216,7 +216,8 @@ void SH2::Write8(uint32 a, uint8 v) {
         }
     }
     switch (a >> 29) {
-    case 0: case 1: case 2: m_machine.BusWrite8(a & 0x07FFFFFFu, v); break;
+    case 0: case 1: m_machine.BusWrite8(a & 0x07FFFFFFu, v); break;
+    case 2: break; // (the cache's associative purge area: a write there drops a line from the cache; there is no cache here)
     case 6: m_cacheData[a & 0xFFF] = v; break;
     case 7:
         if (a >= 0xFFFFFE00u) {
@@ -243,7 +244,8 @@ void SH2::Write16(uint32 a, uint16 v) {
         }
     }
     switch (a >> 29) {
-    case 0: case 1: case 2: m_machine.BusWrite16(a & 0x07FFFFFFu, v); break;
+    case 0: case 1: m_machine.BusWrite16(a & 0x07FFFFFFu, v); break;
+    case 2: break; // (the cache's associative purge area: a write there drops a line from the cache; there is no cache here)
     case 6: Put16(&m_cacheData[a & 0xFFE], v); break;
     case 7:
         if (a >= 0xFFFFFE00u) {
@@ -275,7 +277,8 @@ void SH2::Write32(uint32 a, uint32 v) {
         }
     }
     switch (a >> 29) {
-    case 0: case 1: case 2: m_machine.BusWrite32(a & 0x07FFFFFFu, v); break;
+    case 0: case 1: m_machine.BusWrite32(a & 0x07FFFFFFu, v); break;
+    case 2: break; // (the cache's associative purge area: a write there drops a line from the cache; there is no cache here)
     case 6: Put32(&m_cacheData[a & 0xFFC], v); break;
     case 7:
         if (a >= 0xFFFFFE00u) {

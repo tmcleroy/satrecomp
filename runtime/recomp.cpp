@@ -1435,6 +1435,9 @@ uint32_t Guest::GBR() const {
 uint32_t Guest::PR() const {
     return Access::PR(m_cpu);
 }
+uint32_t Guest::PC() const {
+    return Access::PC(m_cpu);
+}
 uint8_t Guest::Read8(uint32_t address) {
     return Access::Read8(m_cpu, address);
 }

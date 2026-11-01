@@ -1,6 +1,7 @@
 # What a second game will meet
 
-satrecomp has carried one game so far, Fighting Vipers, and the machine was built to what that game's
+Fighters Megamix was the second game (see "What Fighters Megamix met" at the end). This page was first
+written when satrecomp had carried one game, Fighting Vipers, and the machine was built to what that game's
 code asks for ([MACHINE.md](MACHINE.md): "only what the code of the games ported so far needs"). This
 is a list of the places where that shows, for whoever starts the next game. **None of it is to be tidied in advance**: each item waits until a second game needs it,
 and is then solved for both games, checked on both.
@@ -75,3 +76,23 @@ rewritten routines, features, widescreen splits), `games/<id>/movies/`, `games/<
 Movies replay only on the machine and timing they were recorded on: a change to the machine's timing for
 a second game means recording the first game's movies again, and its `make check` and
 `make check-rewrites` passing before the toolkit change is kept.
+
+## What Fighters Megamix met
+
+Built on Fighting Vipers' engine, it carries many of the same routines byte for byte, at other addresses:
+Sega's file, CD and peripheral libraries and AM2's file loader and pad reader. Those replacements moved into
+the toolkit (`runtime/shared_lifts.h`); a game finds its copies by searching its program for the bytes of
+each (the hash covers the code, not its constant pool) and registers them. Fighters Megamix also needed:
+
+- Two sync points: its own copy of the master's command queue reset (the same code as Fighting Vipers'),
+  and the copy in its opening movie's player, a second program loaded at 060C0000.
+- Data sectors from the CD drive (the movie player's own file library reads the disc's directory and the
+  movie through the drive), a drive that pauses at the end of what was asked for at once, and a subcode
+  read reported with the drive stopped.
+- Cache purges (writes to 0x40000000 and up) that leave memory alone.
+- `fine_slices` for the movie player, which hands the slave a job every frame.
+
+Still open (in Fighters Megamix's PROGRESS.md): its opening movie freezes on its first frame on the own
+machine (the movie's clock follows the sound driver's stream position, which stops); skipping the movie
+with Start leaves the slave CPU running stale commands when started by `runtime/hle_bios.cpp` (it works
+with a BIOS image). The game itself boots, plays and passes `make check`.
