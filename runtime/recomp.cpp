@@ -127,6 +127,7 @@ namespace {
         bool codeAudit = false; // SATRECOMP_VERIFY_CODE=1: compare every time anyway, and count where that disagrees
         uint64_t auditWrong = 0, compares = 0;
         uint64_t freshBlocks = 0;
+        uint64_t cachedLoopRuns = 0; // times a waiting CPU ran its loop from its 'cache' (CachedLoop)
         uint64_t builtBlocks = 0;
         uint64_t builtFunctions = 0;
         bool hle = false; // the native BIOS is in use
@@ -142,6 +143,20 @@ namespace {
             Access::Registers at;           // the registers at a block entry since then
             unsigned age = 0;               // block entries since `at` was taken
         } waiting[2];
+        // The loop a CPU is going round (it came back to where it came in last time), as its cache holds it.
+        // Each SH-2 has its own cache, and the other CPU's writes do not reach it: a CPU spinning in a few
+        // instructions goes on running them from its cache while the other overwrites that memory. (Fighters
+        // Megamix's slave waits in its movie player's loop while the master clears the player away, until the
+        // clock change stops the slave.) Here: when the code at the address a CPU keeps coming back to no
+        // longer matches memory, the CPU runs the code it was going round, for as long as it stays there.
+        struct CachedLoop {
+            Entry *entry = nullptr;
+            unsigned block = 0;
+            uint32_t pc = 0;
+            uint32_t lastPc = ~0u; // where the CPU came in last time
+            uint32_t start = 0;          // the entry's code as memory had it when the loop was taken: what
+            std::vector<uint8_t> bytes;  // the interpreter runs (translated code carries its own)
+        } cachedLoop[2];
         bool syncPaused[2] = {false, false}; // free mode: this CPU has paused at the sync point it is at
 
         // Calls made as calls (Call, blocks.h), per CPU. A function that called another and did not get it
@@ -1052,9 +1067,22 @@ namespace {
                     break;
                 }
             }
+            Runtime::CachedLoop &cached = rt.cachedLoop[cpu.IsMaster() ? 0 : 1];
+            bool fromCache = false;
+            (void)fromCache;
             if (resumed) {
                 e = resumed;
             }
+#ifdef SATRECOMP_OWN_MACHINE
+            else if (cached.entry && cached.pc != pc) {
+                cached.entry = nullptr;
+            } else if (!e && cached.entry) {
+                e = cached.entry; // (the code was overwritten under the CPU going round it: its cache still has it)
+                block = cached.block;
+                fromCache = true;
+                rt.cachedLoopRuns++;
+            }
+#endif
             if (e && e->lift) {
                 ran = true;
                 if (Access::Cycles(cpu) >= target) {
@@ -1075,6 +1103,27 @@ namespace {
                     }
                 }
             }
+#ifdef SATRECOMP_OWN_MACHINE
+            // (a CPU that comes back to where it came in last time is going round a loop: see CachedLoop)
+            if (pc == cached.lastPc && cached.entry != e) {
+                const uint32_t start = EntryStart(*e, block, pc);
+                uint32_t span = e->size;
+                if (e->function) {
+                    for (unsigned i = 0; i < e->function->numBlocks; i++) {
+                        span = std::max<uint32_t>(span, e->function->blocks[i].offset + e->function->blocks[i].size);
+                    }
+                }
+                const int64_t at = static_cast<int64_t>(start) - static_cast<int64_t>(r->base);
+                if (at >= 0 && at + span <= r->size) {
+                    cached.entry = e;
+                    cached.block = block;
+                    cached.pc = pc;
+                    cached.start = start;
+                    cached.bytes.assign(r->mem + at, r->mem + at + span);
+                }
+            }
+            cached.lastPc = pc;
+#endif
             if (freeRunning) {
                 Runtime::Waiting &w = rt.waiting[cpu.IsMaster() ? 0 : 1];
                 const Access::Registers now = Access::GetRegisters(cpu);
@@ -1129,7 +1178,17 @@ namespace {
                     }
                     paused = false;
                 }
+#ifdef SATRECOMP_OWN_MACHINE
+                if (fromCache) {
+                    cpu.recompFetchCode = cached.bytes.data();
+                    cpu.recompFetchBase = cached.start;
+                    cpu.recompFetchSize = static_cast<uint32_t>(cached.bytes.size());
+                }
+#endif
                 Run(rt, cpu, *e, block, target);
+#ifdef SATRECOMP_OWN_MACHINE
+                cpu.recompFetchCode = nullptr;
+#endif
             } else if (e->fn && recompiled) {
                 e->fn(cpu, target, e->start);
             } else {
@@ -1694,6 +1753,7 @@ void StateLoaded() {
     for (int cpu = 0; cpu < 2; cpu++) {
         g_rt->linking[cpu] = {};
         g_rt->waiting[cpu] = {};
+        g_rt->cachedLoop[cpu] = {};
         g_rt->syncPaused[cpu] = false;
     }
     ++SATRECOMP_CODE_EPOCH;
@@ -1702,6 +1762,7 @@ void StateLoaded() {
 namespace {
     struct KeptDispatcher {
         Runtime::Waiting waiting[2];
+        Runtime::CachedLoop cachedLoop[2];
         bool syncPaused[2] = {false, false};
         Runtime::Linking linking[2];
         uint64_t activity = 0;
@@ -1715,6 +1776,7 @@ void KeepDispatcher() {
     for (int cpu = 0; cpu < 2; cpu++) {
         g_keptDispatcher.linking[cpu] = g_rt->linking[cpu];
         g_keptDispatcher.waiting[cpu] = g_rt->waiting[cpu];
+        g_keptDispatcher.cachedLoop[cpu] = g_rt->cachedLoop[cpu];
         g_keptDispatcher.syncPaused[cpu] = g_rt->syncPaused[cpu];
     }
     g_keptDispatcher.activity = SATRECOMP_ACTIVITY;
@@ -1727,6 +1789,7 @@ void PutDispatcherBack() {
     for (int cpu = 0; cpu < 2; cpu++) {
         g_rt->linking[cpu] = g_keptDispatcher.linking[cpu];
         g_rt->waiting[cpu] = g_keptDispatcher.waiting[cpu];
+        g_rt->cachedLoop[cpu] = g_keptDispatcher.cachedLoop[cpu];
         g_rt->syncPaused[cpu] = g_keptDispatcher.syncPaused[cpu];
     }
     // (the activity count as it was, so that loops known to be waiting are as they were; the code is compared
@@ -1887,6 +1950,10 @@ void Finish() {
                 static_cast<unsigned long long>(recompiled), total ? 100.0 * recompiled / total : 0.0,
                 static_cast<unsigned long long>(interpreted), total ? 100.0 * interpreted / total : 0.0,
                 static_cast<unsigned long long>(single), static_cast<unsigned long long>(lifted));
+        if (rt.cachedLoopRuns) {
+            fprintf(stderr, "satrecomp: a waiting CPU ran its loop from its cache, the memory under it overwritten, %llu times\n",
+                    static_cast<unsigned long long>(rt.cachedLoopRuns));
+        }
     }
     if (rt.trace) {
         fclose(rt.trace);

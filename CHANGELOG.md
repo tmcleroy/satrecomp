@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fighters Megamix's opening movie plays, and skipping it works:
+  - The CD drive goes on reading when sectors are taken out of a full buffer (it stopped for good before: a
+    stream that read ahead until the buffer was full then waited for ever).
+  - Each CPU's cache, as far as code a CPU keeps going round: when the other CPU overwrites the memory under
+    a loop a CPU is spinning in, that CPU goes on running the loop (as its own cache would let it), the
+    translated code and the interpreter alike (`SH2::recompFetchCode`). `--stats` counts it.
+- `--dump-ram` also writes sound RAM (`PREFIXsound.bin`).
 - A second game, Fighters Megamix, starts on the toolkit. What it needed:
   - `runtime/shared_lifts.h`: the replaced routines of Sega's libraries (the file system's Open, Start, Poll,
     Close and Fread; the CD library's CdPlay, CdSeek and GetCurStat; the peripheral library's SendCommand) and

@@ -1213,6 +1213,7 @@ void Port::Shutdown() {
             .write(reinterpret_cast<const char *>(saturn->ramHigh), satrecomp::Machine::kRamSize);
         std::ofstream(opt.dumpRam + "low.bin", std::ios::binary)
             .write(reinterpret_cast<const char *>(saturn->ramLow), satrecomp::Machine::kRamSize);
+        std::ofstream(opt.dumpRam + "sound.bin", std::ios::binary).write(reinterpret_cast<const char *>(saturn->SoundRam()), 0x80000);
         for (auto *cpu : {&saturn->masterSH2, &saturn->slaveSH2}) {
             fprintf(stderr, "%s PC=%08X PR=%08X R:", cpu->IsMaster() ? "master" : "slave ", cpu->PC, cpu->PR);
             for (uint32_t r : cpu->R) {
@@ -1225,6 +1226,7 @@ void Port::Shutdown() {
             .write(reinterpret_cast<const char *>(saturn->mem.WRAMHigh.data()), saturn->mem.WRAMHigh.size());
         std::ofstream(opt.dumpRam + "low.bin", std::ios::binary)
             .write(reinterpret_cast<const char *>(saturn->mem.WRAMLow.data()), saturn->mem.WRAMLow.size());
+        std::ofstream(opt.dumpRam + "sound.bin", std::ios::binary).write(reinterpret_cast<const char *>(saturn->SCSP.GetWRAMData()), 0x80000);
         for (auto *cpu : {&saturn->masterSH2, &saturn->slaveSH2}) {
             auto &probe = cpu->GetProbe();
             fprintf(stderr, "%s PC=%08X PR=%08X R:", cpu->IsMaster() ? "master" : "slave ", probe.PC(), probe.PR());
@@ -1274,7 +1276,7 @@ static void Usage(const char *argv0) {
             "  --movie PATH           replay an input movie\n"
             "  --record PATH          record an input movie\n"
             "  --auto SEED[:FROM]     random input from frame FROM on (exploration)\n"
-            "  --dump-ram PREFIX      write work RAM (PREFIXhigh.bin, PREFIXlow.bin) and CPU registers at exit\n"
+            "  --dump-ram PREFIX      write work RAM (PREFIXhigh.bin, PREFIXlow.bin), sound RAM (PREFIXsound.bin) and CPU registers at exit\n"
             "  --video-stats          print what the game asked of the video hardware, at exit\n"
             "  --stats                print recompiled/interpreted statistics at exit\n",
             argv0);
