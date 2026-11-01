@@ -214,6 +214,7 @@ void Machine::CdCommand() {
     case 0x48: // reset the selector: the buffer is emptied
         cd.buffered = 0;
         cd.HIRQ &= ~kBFUL;
+        CdResumeIfRoom();
         CdReport(cd.status);
         flags |= kESEL;
         break;
@@ -267,6 +268,7 @@ void Machine::CdCommand() {
             std::copy(cd.bufferFAD + first + count, cd.bufferFAD + cd.buffered, cd.bufferFAD + first);
             cd.buffered -= count;
             cd.HIRQ &= ~kBFUL;
+            CdResumeIfRoom();
             if (command == 0x62) {
                 flags |= kEHST;
             }
@@ -346,6 +348,16 @@ void Machine::CdSectorRange(uint32 &first, uint32 &count) {
     const uint32 offset = cd.command[1], wanted = cd.command[3];
     first = offset == 0xFFFF ? (cd.buffered ? cd.buffered - 1 : 0) : std::min<uint32>(offset, cd.buffered);
     count = wanted == 0xFFFF ? cd.buffered - first : std::min<uint32>(wanted, cd.buffered - first);
+}
+
+// A play that stopped with the buffer full (still "playing") goes on when sectors are taken out of it, as the
+// drive does: Fighters Megamix's movie player reads ahead until the buffer is full, then takes sectors as it
+// shows the movie
+void Machine::CdResumeIfRoom() {
+    auto &cd = m_cd;
+    if (cd.status == 0x03 && !cd.reading && cd.fad < cd.playEnd && cd.buffered < kBufferSectors) {
+        cd.reading = true;
+    }
 }
 
 } // namespace satrecomp::machine

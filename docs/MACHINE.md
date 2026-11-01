@@ -10,7 +10,7 @@ the code of the games ported so far needs, and where a choice had to be made it 
 | `sh2_ops.h` | The instruction set as a table of bit patterns (the generator reads it too) |
 | `machine.h`, `machine.cpp` | Memory and the bus; the system control unit (interrupts to the master CPU, its two timers, DMA); the system manager (slave and sound CPU on/off, clock change, time of day, control pads); the sound chip's clock; the run loop |
 | `vdp.cpp` | The video chips' registers and timing: the parts of a line and a frame, blanking interrupts, framebuffer erase and swap, the VDP1's command table (walked at once; the renderer draws) |
-| `cd.cpp` | The CD drive's command interface, as far as the game still uses it: status, table of contents, buffer set-up, seek, and a "play" that only has to be seen to go |
+| `cd.cpp` | The CD drive's command interface, as far as the games still use it: status, table of contents, buffer set-up, seek, and data sectors read into a buffer of 200 and taken through the data port (one partition, no filters) |
 
 The picture is made by `video/` and the samples by `sound/` (chip and 68000); the machine owns their memory
 and tells them what the game writes and when a line or a sample is due.
@@ -26,7 +26,13 @@ to be only waiting; then they alternate in slices of 32 cycles so the one waitin
 soon. When one CPU signals the other (a write to the MINIT/SINIT area pulses the other's timer input), its
 turn ends there and the two alternate in short slices for a while: games start the slave on a job and go
 on, expecting it to react meanwhile. `game.cfg` can also name sync points, addresses where a CPU gives the
-other time.
+other time, and `fine_slices`, code during which the two always alternate in short slices.
+
+There is no cache, with one exception for what a cache does to code a CPU keeps going round: each SH-2's
+cache is its own, so a CPU spinning in a short loop goes on running it while the other CPU overwrites that
+memory. The dispatcher notes the loop a CPU comes back to, and runs it from what memory held when it was
+noted while the CPU stays there (`CachedLoop` in runtime/recomp.cpp; the interpreter takes its instructions
+from that copy too). Writes to the cache's purge area do nothing.
 
 Things that take time on the hardware and none here: DMA, the VDP1's drawing (the game is told it is done
 a little later), bus waits. A frame is 263 lines of 1708 or 1820 cycles.

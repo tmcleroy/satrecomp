@@ -707,7 +707,12 @@ uint64 SH2::RecompInterpretNext() {
         TakeInterrupt();
         return 9;
     }
-    const uint16 opcode = (PC & 0xC6000000u) == 0x06000000u ? Get16(&m_machine.ramHigh[PC & 0xFFFFEu]) : m_machine.BusRead16(PC & 0x07FFFFFEu);
+    uint16 opcode;
+    if (recompFetchCode && PC - recompFetchBase < recompFetchSize) [[unlikely]] {
+        opcode = Get16(&recompFetchCode[PC - recompFetchBase]);
+    } else {
+        opcode = (PC & 0xC6000000u) == 0x06000000u ? Get16(&m_machine.ramHigh[PC & 0xFFFFEu]) : m_machine.BusRead16(PC & 0x07FFFFFEu);
+    }
     m_intrFlags.allow = true;
     Execute(opcode);
     return g_opCycles[opcode];

@@ -226,6 +226,7 @@ private:
     void CdReport(uint8 status);
     void CdPeriodic();
     void CdSectorRange(uint32 &first, uint32 &count);
+    void CdResumeIfRoom();
 };
 
 } // namespace satrecomp::machine

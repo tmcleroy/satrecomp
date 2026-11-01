@@ -90,6 +90,10 @@ public:
     }
     // One instruction (or an interrupt taken), as the dispatcher asks for when it has no translation
     uint64 RecompInterpretNext();
+    // Code the interpreter takes its instructions from instead of memory while the PC is in it (the
+    // dispatcher's model of a loop held in this CPU's cache: runtime/recomp.cpp, CachedLoop); null: memory
+    const uint8 *recompFetchCode = nullptr;
+    uint32 recompFetchBase = 0, recompFetchSize = 0;
     void RecompRefillPipeline() {}
     bool RecompWaiting() const {
         return m_recompWaiting;

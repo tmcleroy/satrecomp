@@ -92,7 +92,7 @@ each (the hash covers the code, not its constant pool) and registers them. Fight
 - Cache purges (writes to 0x40000000 and up) that leave memory alone.
 - `fine_slices` for the movie player, which hands the slave a job every frame.
 
-Still open (in Fighters Megamix's PROGRESS.md): its opening movie freezes on its first frame on the own
-machine (the movie's clock follows the sound driver's stream position, which stops); skipping the movie
-with Start leaves the slave CPU running stale commands when started by `runtime/hle_bios.cpp` (it works
-with a BIOS image). The game itself boots, plays and passes `make check`.
+- A CD drive that goes on reading once a full buffer has room again (the movie streams ahead).
+- The effect of each SH-2's own cache on a loop: the slave waits in the movie player's loop while the master
+  clears the player away (until the clock change stops the slave); it goes on from its cache
+  (`CachedLoop` in runtime/recomp.cpp).
