@@ -17,6 +17,8 @@
 
 #include "lift.h"
 
+#include <initializer_list>
+
 namespace satrecomp {
 class Archive;
 
@@ -30,8 +32,11 @@ struct Routine {
 };
 
 // The file system library (GFS): open a file by name, start a read into memory, ask how it is getting on,
-// close; and its Fread, which reads a number of sectors from a file's read position.
-extern const Routine kGfsOpen, kGfsStart, kGfsPoll, kGfsClose, kGfsFread;
+// close. (Not its Fread: a replacement that read at once was tried and taken out. The game waits in Fread
+// with its interrupts running while the drive reads, and Sega AM2's games load their sound program and
+// samples through it: done at once, their sound effects stopped after the first in a fight. The game's own
+// Fread reads through the CD drive, satrecomp/machine/cd.cpp.)
+extern const Routine kGfsOpen, kGfsStart, kGfsPoll, kGfsClose;
 // The CD library: play audio tracks, pause or stop, report the drive's state (runtime/music.h plays them)
 extern const Routine kCdPlay, kCdSeek, kCdGetCurStat;
 // The peripheral library's SMPC command routine: answers INTBACK (system status and both control pads)
@@ -39,6 +44,16 @@ extern const Routine kCdPlay, kCdSeek, kCdGetCurStat;
 extern const Routine kPerSendCommand;
 // Sega AM2's engine (Fighting Vipers, Fighters Megamix): load a whole file and wait; read both pads a frame
 extern const Routine kAm2LoadFile, kAm2ReadPads;
+
+// Sega AM2's engine in widescreen: the routines that list a stage's panels (the cages, fences and walls of
+// Fighting Vipers and Fighters Megamix, on each CPU) take a panel only if all four corners are less than 224
+// dots from the picture's middle, 48 past the 4:3 picture's sides, so in a wider picture the panels at the
+// sides were left out. Each routine loads the limit from a word next to its code (mov.w @(disp,PC),r1, then
+// neg r1,r2 straight after or in the delay slot of the branch after). `loads` are those mov.w instructions;
+// this sets each limit out by as much as the picture is wider and a margin more (at 4:3 it stays the game's). Called after
+// every frame the game ran, since code may be loaded later and a state loaded may have been saved with
+// another picture's limit. Code that isn't such a routine is left alone.
+void WidenAm2PanelLimits(std::initializer_list<uint32_t> loads);
 
 // Registers `routine` at `address` (name: as it is listed, if not the routine's own)
 void Register(const Routine &routine, uint32_t address, const char *name = nullptr);

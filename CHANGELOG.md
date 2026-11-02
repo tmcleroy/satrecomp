@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Sound effects in Sega AM2's fights: the shared replacement of the file system's Fread is taken out. It read
+  at once, where the game waits in Fread with its interrupts running while the drive reads; Fighting Vipers
+  and Fighters Megamix load their sound program and samples through it, and done at once, a fight's sound
+  effects stopped after the first (a hiss in their place; the CD music went on). The game's own Fread reads
+  through the CD drive, at its speed: loading before a fight takes about two seconds longer.
+- `shared::WidenAm2PanelLimits`: in widescreen, the stages' panels (cages, fences, walls) of Sega AM2's engine
+  reach the picture's edges (moved out of Fighting Vipers' sources, and with a wider margin: Fighters
+  Megamix's fences are wider). The routines that list them are found from the address of each one's load of
+  the limit.
 - Fighters Megamix's opening movie plays, and skipping it works:
   - The CD drive goes on reading when sectors are taken out of a full buffer (it stopped for good before: a
     stream that read ahead until the buffer was full then waited for ever).
@@ -11,7 +20,7 @@
 - `--dump-ram` also writes sound RAM (`PREFIXsound.bin`).
 - A second game, Fighters Megamix, starts on the toolkit. What it needed:
   - `runtime/shared_lifts.h`: the replaced routines of Sega's libraries (the file system's Open, Start, Poll,
-    Close and Fread; the CD library's CdPlay, CdSeek and GetCurStat; the peripheral library's SendCommand) and
+    Close and Fread (Fread since taken out); the CD library's CdPlay, CdSeek and GetCurStat; the peripheral library's SendCommand) and
     of Sega AM2's engine (LoadFile, ReadPads), moved out of Fighting Vipers' sources. They take every address
     they use from the routine's own code, so a game only registers each at its address
     (`shared::Register(shared::kGfsOpen, 0x06044D78)`). Fighting Vipers runs the same, state hash for hash.
