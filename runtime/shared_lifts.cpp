@@ -2,10 +2,12 @@
 // Copyright (C) 2026 Tommy McLeroy. Part of satrecomp: https://github.com/tmcleroy/satrecomp
 // Routines several games carry byte for byte (shared_lifts.h). First written for Fighting Vipers.
 #include "shared_lifts.h"
+#include "game.h"
 #include "music.h"
 #include "state.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -147,43 +149,6 @@ bool GfsClose(Guest &g) {
     g.Return(300);
     return true;
 }
-
-// The standard file library's Fread. Games read the disc's directory with it at start-up, and movie players
-// read their movie through it a few sectors at a time as it plays.
-//
-// Fread(file, sectors, buffer, size): reads up to that many sectors from where the file's read position is,
-// and moves the position on. Returns the number of bytes read.
-// interface: r4 -> the library's open file (start sector at +0x10, sectors at +0x20, read position in
-// sectors at +0x48), r5 = sectors, r6 = buffer, r7 = its size in bytes
-bool GfsFread(Guest &g) {
-    const uint32_t file = g.R(4);
-    if (file == 0) {
-        return false;
-    }
-    const uint32_t first = g.Read32(file + 0x10), total = g.Read32(file + 0x20);
-    uint32_t position = g.Read32(file + 0x48);
-    if (position == 0xFFFFFFFF) {
-        position = 0; // (a file nothing has been read from yet)
-    }
-    if (g.Read32(file + 0x1C) != 2048 || position > total) {
-        return false;
-    }
-    const uint32_t count = std::min({g.R(5), total - position, g.R(7) / 2048});
-    std::vector<uint8_t> data(static_cast<size_t>(count) * 2048);
-    for (uint32_t i = 0; i < count; i++) {
-        if (!satrecomp::ReadDiscSector(first + position + i, data.data() + static_cast<size_t>(i) * 2048)) {
-            return false;
-        }
-    }
-    // (whole sectors, also of the file's last one, as the library gives them)
-    const size_t bytes = data.size();
-    g.CopyIn(g.R(6), data.data(), bytes);
-    g.Write32(file + 0x48, position + count);
-    g.R(0) = static_cast<uint32_t>(bytes);
-    g.Return(2000);
-    return true;
-}
-
 
 // --- CD music ---
 //
@@ -486,7 +451,6 @@ const Routine kGfsOpen = {"GFS Open", 0x40, 0xD6F3BEFA9FD2D85Cull, GfsOpen};
 const Routine kGfsStart = {"GFS Start", 0x40, 0x8F991EFB4E2B8472ull, GfsStart};
 const Routine kGfsPoll = {"GFS Poll", 0x40, 0x8F0DC6C95F511448ull, GfsPoll};
 const Routine kGfsClose = {"GFS Close", 0x40, 0x7B59151D7BEC30D8ull, GfsClose};
-const Routine kGfsFread = {"GFS Fread", 0x6E, 0x9D2028C1C665A09Bull, GfsFread};
 const Routine kCdPlay = {"CdPlay", 0x44, 0xCB5EB1EAEFB73570ull, CdPlay};
 const Routine kCdSeek = {"CdSeek", 0x26, 0x4797762B59FD886Full, CdSeek};
 const Routine kCdGetCurStat = {"GetCurStat", 0x44, 0x84988AAF02EEAA2Aull, CdGetCurStat};
@@ -522,6 +486,32 @@ void State(Archive &ar) {
     ar.Pod(g_smpc.requests);
     if (!ar.Saving()) {
         g_smpc.pending = false;
+    }
+}
+
+void WidenAm2PanelLimits(std::initializer_list<uint32_t> loads) {
+    constexpr uint16_t kLimit = 224, kHalfWidth = 176;
+    constexpr uint16_t kNegR1R2 = 0x621B;
+    const float wider = PictureAspect() / (4.0f / 3.0f) - 1.0f;
+    // In a wider picture: out by as much as the picture is wider, and by another half 4:3 picture, since a
+    // panel at the side is listed only when its far corners are inside too (Megamix's fences are wide; at
+    // 16:9 one at the right edge needed a limit of nearly 300, and limits up to 2000 showed nothing more)
+    const uint16_t limit = wider > 0.0f
+        ? static_cast<uint16_t>(kLimit + std::lround(wider * kHalfWidth) + kHalfWidth)
+        : kLimit;
+    for (const uint32_t at : loads) {
+        const uint16_t op = Ram16(at);
+        if ((op & 0xFF00) != 0x9100) { // mov.w @(disp,PC),r1
+            continue;
+        }
+        if (Ram16(at + 2) != kNegR1R2 && Ram16(at + 4) != kNegR1R2) {
+            continue;
+        }
+        const uint32_t word = at + 4 + (op & 0xFF) * 2;
+        const uint16_t now = Ram16(word);
+        if (now != limit && now >= kLimit) { // (the game's, or one set here)
+            SetRam16(word, limit);
+        }
     }
 }
 
