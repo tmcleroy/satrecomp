@@ -46,8 +46,30 @@ struct WideSplit {
     uint32_t layer, rowFrom, rowTo, leftEnd, rightStart;
 };
 
+// A field of a save file that a cheat shows the game raised, to unlock what the game unlocks by it, while the
+// file kept stays the player's own (Game::saveUnlocks). Values in the file are big-endian, of 1, 2 or 4 bytes.
+struct SaveField {
+    uint32_t offset;
+    uint8_t size;
+    enum Kind : uint8_t {
+        kBits,    // these bits set
+        kAtLeast, // a count, at least this
+    } kind;
+    uint32_t value;
+};
+struct SaveUnlocks {
+    const char *feature = nullptr; // the cheat's feature (FeatureOn)
+    const char *file = nullptr;    // the save file's name, as the game gives it to the backup library
+    std::vector<SaveField> fields;
+};
+
 struct Game {
     std::vector<Feature> features;
+    // With saveUnlocks.feature on, the backup library (hle_bios.cpp) gives the game its save file with these
+    // fields raised, and takes out again what it added when the game writes the file: the game sees all it
+    // unlocks by them, and the file keeps what the player has done (a count goes on from the player's own). It
+    // takes effect when the game next reads the file (at its start, or a reset).
+    SaveUnlocks saveUnlocks;
     std::vector<WideSplit> wideSplits;
     void (*frame)() = nullptr;                                     // after every frame the game ran
     void (*state)(Archive &ar) = nullptr;                          // the game sources' own state, for save states

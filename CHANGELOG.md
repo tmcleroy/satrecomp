@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Save unlocks (`Game::saveUnlocks`, for a game's "unlock everything" cheat): the native backup library gives
+  the game its save file with fields of it raised (bits set, a count at least so much), and takes out what it
+  added when the game writes the file, so that the file kept is the player's own and a count goes on from
+  theirs. What was added is part of a save state.
 - Sound effects in Sega AM2's fights: the shared replacement of the file system's Fread is taken out. It read
   at once, where the game waits in Fread with its interrupts running while the drive reads; Fighting Vipers
   and Fighters Megamix load their sound program and samples through it, and done at once, a fight's sound
