@@ -11,6 +11,7 @@
 #endif
 
 #include "access.h"
+#include "game.h"
 #include "hle_bios.h"
 #include "recomp.h"
 #include "state.h"
@@ -147,6 +148,9 @@ namespace {
         uint32_t clockReturn = 0;
         uint32_t clockSR = 0;
         uint32_t bootWaited = 0; // how long the master has waited for the CD drive
+        // What the save unlocks (Game::saveUnlocks) added to the file the game last read, field by field:
+        // the bits set or the amount added (empty: nothing, the game has its file as it is)
+        std::vector<uint32_t> saveAdded;
         std::set<uint32_t> reported;
     };
     State g;
@@ -532,6 +536,62 @@ namespace {
     }
 
     // The ten library functions, in the order of the library's table
+    // --- the save unlocks (Game::saveUnlocks) ---------------------------------------------------------
+
+    uint32_t FieldGet(const std::vector<uint8_t> &data, const SaveField &f) {
+        uint32_t v = 0;
+        for (uint32_t i = 0; i < f.size; i++) {
+            v = v << 8 | data[f.offset + i];
+        }
+        return v;
+    }
+    void FieldSet(std::vector<uint8_t> &data, const SaveField &f, uint32_t v) {
+        for (uint32_t i = f.size; i-- > 0; v >>= 8) {
+            data[f.offset + i] = static_cast<uint8_t>(v);
+        }
+    }
+    bool IsUnlockFile(const std::string &name, const std::vector<uint8_t> &data) {
+        const SaveUnlocks &u = TheGame().saveUnlocks;
+        if (!u.file || !u.feature || name != u.file) {
+            return false;
+        }
+        for (const SaveField &f : u.fields) {
+            if (f.offset + f.size > data.size()) {
+                return false;
+            }
+        }
+        return true;
+    }
+    // The file as the game reads it: with the cheat on, the fields raised, and what was added remembered
+    void ShowSave(const std::string &name, std::vector<uint8_t> &data) {
+        if (!IsUnlockFile(name, data)) {
+            return;
+        }
+        const SaveUnlocks &u = TheGame().saveUnlocks;
+        g.saveAdded.clear();
+        if (!FeatureOn(u.feature)) {
+            return;
+        }
+        for (const SaveField &f : u.fields) {
+            const uint32_t was = FieldGet(data, f);
+            const uint32_t now = f.kind == SaveField::kBits ? was | f.value : std::max(was, f.value);
+            g.saveAdded.push_back(f.kind == SaveField::kBits ? now & ~was : now - was);
+            FieldSet(data, f, now);
+        }
+    }
+    // The file as it is kept when the game writes it: what ShowSave added taken out again
+    void KeepSave(const std::string &name, std::vector<uint8_t> &data) {
+        const SaveUnlocks &u = TheGame().saveUnlocks;
+        if (!IsUnlockFile(name, data) || g.saveAdded.size() != u.fields.size()) {
+            return;
+        }
+        for (size_t i = 0; i < u.fields.size(); i++) {
+            const SaveField &f = u.fields[i];
+            const uint32_t v = FieldGet(data, f), added = g.saveAdded[i];
+            FieldSet(data, f, f.kind == SaveField::kBits ? v & ~added : v - std::min(v, added));
+        }
+    }
+
     void Bup(SH2 &c, unsigned function) {
         auto &R = Access::R(c);
         auto &mem = Backup(*g.saturn);
@@ -589,6 +649,7 @@ namespace {
             for (uint32_t i = 0; i < size; i++) {
                 file.data[i] = Access::Read8(c, R[6] + i);
             }
+            KeepSave(file.header.filename, file.data);
             switch (mem.Import(file, (R[7] & 0xFF) == 0)) {
             case bupns::BackupFileImportResult::FileExists: result = kBupFound; break;
             case bupns::BackupFileImportResult::NoSpace: result = kBupNoSpace; break;
@@ -598,10 +659,22 @@ namespace {
         }
         case 4:   // BUP_Read(device, file name, data)
         case 7: { // BUP_Verify(device, file name, data)
-            const auto file = mem.Export(GuestString(c, R[5], 11));
+            const std::string name = GuestString(c, R[5], 11);
+            auto file = mem.Export(name);
             if (!file) {
                 result = kBupNotFound;
                 break;
+            }
+            if (function == 4) {
+                ShowSave(name, file->data);
+            } else if (IsUnlockFile(name, file->data) &&
+                       g.saveAdded.size() == TheGame().saveUnlocks.fields.size()) {
+                // (the game compares what it has, the file as it was shown)
+                const auto &fields = TheGame().saveUnlocks.fields;
+                for (size_t i = 0; i < fields.size(); i++) {
+                    const uint32_t v = FieldGet(file->data, fields[i]), added = g.saveAdded[i];
+                    FieldSet(file->data, fields[i], fields[i].kind == SaveField::kBits ? v | added : v + added);
+                }
             }
             for (uint32_t i = 0; i < file->data.size(); i++) {
                 if (function == 4) {
@@ -684,6 +757,7 @@ void Serialize(Archive &ar) {
     ar.Pod(g.clockReturn);
     ar.Pod(g.clockSR);
     ar.Pod(g.bootWaited);
+    ar.Vec(g.saveAdded);
 }
 
 bool Run(SH2 &c, uint32_t offset) {
