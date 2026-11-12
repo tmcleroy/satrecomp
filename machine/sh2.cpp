@@ -111,6 +111,19 @@ void SH2::Reset(bool hard) {
 // ---------------------------------------------------------------------------------------------------------
 // Memory
 
+// The sound chip's memory and registers answer the main CPUs slowly: a read takes about 40 cycles (Ymir's
+// timing), where the instruction counts 1. Games time their waits for the sound driver by it: Fighting Vipers
+// and Fighters Megamix give up on a request the driver has not taken after 65,536 reads, and then keep every
+// sound effect off.
+void SH2::SoundWait(uint32 a) {
+    if ((a & 0x07E00000u) == 0x05A00000u) {
+        m_cyclesExecuted += kSoundReadWait;
+        if (m_syncCalls) [[unlikely]] {
+            m_machine.SoundCatchUp(m_cyclesExecuted);
+        }
+    }
+}
+
 uint8 SH2::Read8(uint32 a) {
     if ((a & 0xC6000000u) == 0x06000000u) [[likely]] {
         return m_machine.ramHigh[a & 0xFFFFFu];
@@ -118,7 +131,7 @@ uint8 SH2::Read8(uint32 a) {
     ++g_activity;
     g_hardware += (a & 0xC7F00000u) != 0x00200000u;
     switch (a >> 29) {
-    case 0: case 1: case 2: return m_machine.BusRead8(a & 0x07FFFFFFu);
+    case 0: case 1: case 2: SoundWait(a); return m_machine.BusRead8(a & 0x07FFFFFFu);
     case 6: return m_cacheData[a & 0xFFF];
     case 7: return a >= 0xFFFFFE00u ? static_cast<uint8>(ReadRegister(a & 0x1FF, 1)) : 0;
     default: return 0;
@@ -132,7 +145,7 @@ uint16 SH2::Read16(uint32 a) {
     ++g_activity;
     g_hardware += (a & 0xC7F00000u) != 0x00200000u;
     switch (a >> 29) {
-    case 0: case 1: case 2: return m_machine.BusRead16(a & 0x07FFFFFFu);
+    case 0: case 1: case 2: SoundWait(a); return m_machine.BusRead16(a & 0x07FFFFFFu);
     case 6: return Get16(&m_cacheData[a & 0xFFE]);
     case 7: return a >= 0xFFFFFE00u ? static_cast<uint16>(ReadRegister(a & 0x1FF, 2)) : 0;
     default: return 0;
@@ -146,7 +159,7 @@ uint32 SH2::Read32(uint32 a) {
     ++g_activity;
     g_hardware += (a & 0xC7F00000u) != 0x00200000u;
     switch (a >> 29) {
-    case 0: case 1: case 2: return m_machine.BusRead32(a & 0x07FFFFFFu);
+    case 0: case 1: case 2: SoundWait(a); return m_machine.BusRead32(a & 0x07FFFFFFu);
     case 6: return Get32(&m_cacheData[a & 0xFFC]);
     case 7: return a >= 0xFFFFFE00u ? ReadRegister(a & 0x1FF, 4) : 0;
     default: return 0;

@@ -1629,6 +1629,9 @@ void Guest::Call(uint32_t address) {
     Access::SetPR(m_cpu, kBack);
     Access::SetPC(m_cpu, address);
     rt.inCall++;
+    // (the sound side can keep up with it: a routine may wait for the sound driver to take a request)
+    const bool soundKeepsUp = !rt.inCheck;
+    m_cpu.m_syncCalls += soundKeepsUp;
     const uint64_t cyclesAtCall = Access::Cycles(m_cpu);
     for (uint32_t steps = 0;; steps++) {
         m_cpu.m_intrFlags.pending = false;
@@ -1642,14 +1645,16 @@ void Guest::Call(uint32_t address) {
         if (rt.inCheck || Access::InDelaySlot(m_cpu) || !Dispatch(m_cpu, Access::Cycles(m_cpu) + (1ull << 40), &rt)) {
             Access::AddCycles(m_cpu, m_cpu.RecompInterpretNext());
         }
-        // (No time passes for the rest of the machine during a call: a routine that waits for an interrupt, the
-        // other CPU or the disc never comes back, and cannot be called this way)
+        // (No time passes for the rest of the machine during a call, but for the sound side when the routine reads
+        // it: a routine that waits for an interrupt, the other CPU or the disc never comes back, and cannot be
+        // called this way)
         if (Access::Cycles(m_cpu) - cyclesAtCall > 100'000'000 || steps == 50'000'000) {
             fprintf(stderr, "Guest::Call(%08X): the routine did not come back (does it wait for something?)\n", address);
             abort();
         }
     }
     rt.inCall--;
+    m_cpu.m_syncCalls -= soundKeepsUp;
     m_cpu.RecalcInterrupts();
     Access::SetPR(m_cpu, pr);
     Access::SetPC(m_cpu, pc);

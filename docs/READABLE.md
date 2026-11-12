@@ -112,6 +112,9 @@ what the game's does, so the check is run with them off.
 
 - `Guest::Call` runs its routine to the end at once: no interrupt is taken and no time passes for the rest
   of the machine, so a routine that waits (for the disc, the other CPU, the next frame) cannot be called.
+  The sound side is the exception: when the routine reads the sound chip, the sound CPU and chip are run up
+  to the CPU's time, so a routine that hands the sound driver a request and waits for it to be taken works
+  (Fighting Vipers' round set-up does).
 - A routine that reads a timer cannot be compared (the two sides take different times): the game's task
   list caller (0x06004560), which times each task, is one.
 - The rewrite's time is a number given to `Return(cycles)`, not the original's count, so a run with

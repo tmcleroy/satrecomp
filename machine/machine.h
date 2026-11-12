@@ -92,6 +92,9 @@ public:
     void BusWrite8(uint32 address, uint8 value);
     void BusWrite16(uint32 address, uint16 value);
     void BusWrite32(uint32 address, uint32 value);
+    // The sound CPU and chip brought up to `sliceCycles` into the current time slice (a CPU's time), ahead of
+    // the rest of the machine, which catches up at the slice's end (SH2::m_syncCalls)
+    void SoundCatchUp(uint64 sliceCycles);
     // A CPU has taken the interrupt on its external line
     void AcknowledgeExternalInterrupt(SH2 &cpu);
 
