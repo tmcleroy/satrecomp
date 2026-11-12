@@ -142,6 +142,9 @@ public:
     uint32 m_recompResume = 0; // where a translated function stopped (block_native.h)
     bool m_recompYield = false, m_recompWaiting = false;
     bool m_sleep = false;
+    // Game code run at once from C++ (Guest::Call), in which no time passes for the rest of the machine: the
+    // sound side is brought up to this CPU's time when that code reads the sound chip, so that it can answer
+    unsigned m_syncCalls = 0;
     bool m_yieldRequest = false;
 
     struct {
@@ -191,6 +194,8 @@ public:
     void MemWriteLong(uint32 address, uint32 value) {
         Write32(address, value);
     }
+    static constexpr uint64 kSoundReadWait = 39; // (the cycles a read of the sound chip waits, besides its own)
+    void SoundWait(uint32 address);
     uint8 Read8(uint32 address);
     uint16 Read16(uint32 address);
     uint32 Read32(uint32 address);

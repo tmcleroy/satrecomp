@@ -191,6 +191,7 @@ LABEL:                          \
         } else {                                                \
             SN_HW_BEGIN()                                       \
             V = c.MemReadByte<false>(a_);                       \
+            base += c.m_cyclesExecuted - now; /* (the bus's wait) */ \
         }                                                       \
     }
 #define SN_RD16X(V, ADDR, ONWAIT)                                                    \
@@ -203,6 +204,7 @@ LABEL:                          \
             SN_HW_BEGIN()                                                            \
             ONWAIT                                                                   \
             V = c.MemReadWord<false>(a_);                                            \
+            base += c.m_cyclesExecuted - now; /* (the bus's wait) */                 \
         }                                                                            \
     }
 #define SN_RD32X(V, ADDR, ONWAIT)                                                    \
@@ -215,6 +217,7 @@ LABEL:                          \
             SN_HW_BEGIN()                                                            \
             ONWAIT                                                                   \
             V = c.MemReadLong<false>(a_);                                            \
+            base += c.m_cyclesExecuted - now; /* (the bus's wait) */                 \
         }                                                                            \
     }
 #define SN_RD16(V, ADDR, ONWAIT) SN_RD16X(V, ADDR, if (c.m_bus.IsBusWait(a_, 2, false)) [[unlikely]] ONWAIT)

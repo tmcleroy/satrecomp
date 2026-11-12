@@ -748,6 +748,12 @@ void Machine::SoundSample() {
     m_sampleFraction = total % kSampleRate;
 }
 
+void Machine::SoundCatchUp(uint64 sliceCycles) {
+    while (m_sampleDue <= m_now + sliceCycles) {
+        SoundSample();
+    }
+}
+
 uint8 Machine::Read8(uint32 address) {
     if (address < 0x80000) {
         return m_soundRam[address];

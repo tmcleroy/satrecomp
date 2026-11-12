@@ -35,7 +35,10 @@ noted while the CPU stays there (`CachedLoop` in runtime/recomp.cpp; the interpr
 from that copy too). Writes to the cache's purge area do nothing.
 
 Things that take time on the hardware and none here: DMA, the VDP1's drawing (the game is told it is done
-a little later), bus waits. A frame is 263 lines of 1708 or 1820 cycles.
+a little later), bus waits, with one exception: a main CPU's read of the sound chip (its memory or registers)
+takes 40 cycles, as on the hardware (`SH2::SoundWait`). Games count on it when they wait for the sound
+driver: Fighting Vipers and Fighters Megamix poll the driver's mailbox up to 65,536 times before deciding it
+is dead and keeping every sound effect off. A frame is 263 lines of 1708 or 1820 cycles.
 
 ## What it was measured against
 
