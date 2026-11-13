@@ -67,7 +67,7 @@ namespace {
         p[3] = static_cast<uint8>(v);
     }
     // Interrupt sources, in the order they win between equal levels
-    enum : uint8 { kSourceNone, kSourceNMI, kSourceExternal, kSourceDivider, kSourceDma0, kSourceDma1, kSourceCapture, kSourceCompare, kSourceOverflow };
+    enum : uint8 { kSourceNone, kSourceNMI, kSourceExternal, kSourceDivider, kSourceDma0, kSourceDma1, kSourceCapture, kSourceCompare, kSourceOverflow, kSourceWatchdog };
 } // namespace
 
 bool IllegalInSlot(Op op) {
@@ -99,6 +99,7 @@ void SH2::Reset(bool hard) {
     m_recompYield = m_recompWaiting = m_sleep = m_yieldRequest = false;
     INTC = {};
     m_frt = {};
+    m_wdt = {};
     m_divu = {};
     m_dma[0] = m_dma[1] = {};
     m_dmaOperation = 0;
@@ -313,8 +314,25 @@ void SH2::SyncTimer() {
     }
     static constexpr unsigned kShift[4] = {3, 5, 7, 3};
     const unsigned shift = kShift[m_frt.TCR & 3];
-    m_frt.partial += now - m_timerSynced;
+    const uint64 elapsed = now - m_timerSynced;
+    m_frt.partial += elapsed;
     m_timerSynced = now;
+    if (m_wdt.WTCSR & 0x20) { // the watchdog timer counts too
+        static constexpr unsigned kWatchdogShift[8] = {1, 6, 7, 8, 9, 10, 12, 13};
+        const unsigned watchdogShift = kWatchdogShift[m_wdt.WTCSR & 7];
+        m_wdt.partial += elapsed;
+        const uint64 count = m_wdt.WTCNT + (m_wdt.partial >> watchdogShift);
+        m_wdt.partial &= (1ull << watchdogShift) - 1;
+        m_wdt.WTCNT = static_cast<uint8>(count);
+        if (count > 0xFF) {
+            if (m_wdt.WTCSR & 0x40) {
+                m_wdt.RSTCSR |= 0x80; // (watchdog mode: the reset it could ask for is not done)
+            } else if (!(m_wdt.WTCSR & 0x80)) {
+                m_wdt.WTCSR |= 0x80; // interval mode: the interrupt, until the flag is cleared
+                RecalcInterrupts();
+            }
+        }
+    }
     const uint64 ticks = m_frt.partial >> shift;
     m_frt.partial &= (1ull << shift) - 1;
     if (!ticks) {
@@ -339,6 +357,40 @@ void SH2::SyncTimer() {
         m_frt.FTCSR |= flags;
         if (flags & m_frt.TIER) {
             RecalcInterrupts();
+        }
+    }
+}
+
+// The watchdog timer's registers take words only, with a key in the high byte that says which register
+void SH2::WriteWatchdog(uint32 address, uint16 value) {
+    const uint8 key = static_cast<uint8>(value >> 8), byte = static_cast<uint8>(value);
+    SyncTimer();
+    if (address == 0x80) {
+        if (key == 0xA5) { // control and status
+            uint8 overflow = m_wdt.WTCSR & 0x80;
+            if (!(byte & 0x80) && m_wdt.overflowRead) {
+                overflow = 0;
+            }
+            m_wdt.WTCSR = static_cast<uint8>(overflow | (byte & 0x67) | 0x18);
+            if (!(byte & 0x20)) { // (stopped: the counter and the flag are cleared)
+                m_wdt.WTCSR &= 0x7F;
+                m_wdt.WTCNT = 0;
+                m_wdt.partial = 0;
+            }
+            if (!(m_wdt.WTCSR & 0x80)) {
+                m_wdt.overflowRead = false;
+            }
+            RecalcInterrupts();
+        } else if (key == 0x5A && (m_wdt.WTCSR & 0x20)) { // the counter
+            m_wdt.WTCNT = byte;
+        }
+    } else if (address == 0x82) {
+        if (key == 0xA5) {
+            if (!(byte & 0x80)) {
+                m_wdt.RSTCSR &= 0x7F;
+            }
+        } else if (key == 0x5A) {
+            m_wdt.RSTCSR = static_cast<uint8>((m_wdt.RSTCSR & 0x80) | (byte & 0x60) | 0x1F);
         }
     }
 }
@@ -382,6 +434,12 @@ uint32 SH2::ReadRegister(uint32 address, unsigned size) {
         case 0x69: return INTC.VCRD & 0xFF;
         case 0x71: return m_dma[0].request;
         case 0x72: return m_dma[1].request;
+        case 0x80:
+            SyncTimer();
+            m_wdt.overflowRead = (m_wdt.WTCSR & 0x80) != 0;
+            return m_wdt.WTCSR;
+        case 0x81: SyncTimer(); return m_wdt.WTCNT;
+        case 0x83: return m_wdt.RSTCSR;
         case 0x92: return m_cacheControl;
         case 0xE0: return INTC.ICR >> 8;
         case 0xE1: return INTC.ICR & 0xFF;
@@ -423,6 +481,15 @@ uint32 SH2::ReadRegister(uint32 address, unsigned size) {
 }
 
 void SH2::WriteRegister(uint32 address, unsigned size, uint32 value) {
+    if (address >= 0x80 && address < 0x84) { // the watchdog timer: words with a key (bytes are not taken)
+        if (size == 2) {
+            WriteWatchdog(address & ~1u, static_cast<uint16>(value));
+        } else if (size == 4) {
+            WriteWatchdog(0x80, static_cast<uint16>(value >> 16));
+            WriteWatchdog(0x82, static_cast<uint16>(value));
+        }
+        return;
+    }
     if (address < 0x100) {
         if (size > 1) {
             for (unsigned i = 0; i < size; i++) {
@@ -651,6 +718,7 @@ void SH2::RecalcInterrupts() {
     consider(timerFlags & 0x80, timerLevel, (INTC.VCRC >> 8) & 0x7F, kSourceCapture);
     consider(timerFlags & 0x0C, timerLevel, INTC.VCRC & 0x7F, kSourceCompare);
     consider(timerFlags & 0x02, timerLevel, (INTC.VCRD >> 8) & 0x7F, kSourceOverflow);
+    consider((m_wdt.WTCSR & 0xC0) == 0x80, (INTC.IPRA >> 4) & 15, (INTC.VCRWDT >> 8) & 0x7F, kSourceWatchdog);
     INTC.pending.level = level;
     INTC.pending.vector = vector;
     INTC.pending.source = source;

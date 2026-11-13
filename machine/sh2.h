@@ -221,6 +221,12 @@ private:
         uint8 latch = 0;    // (the low byte of a 16-bit register, taken when the high byte is read or written)
         uint64 partial = 0; // cycles not yet counted
     } m_frt;
+    // The watchdog timer: its counter, and in interval mode the interrupt when that overflows
+    struct {
+        uint8 WTCSR = 0x18, WTCNT = 0, RSTCSR = 0x1F;
+        bool overflowRead = false; // the overflow flag was read as set (only then can it be cleared)
+        uint64 partial = 0;        // cycles not yet counted
+    } m_wdt;
     struct {
         uint32 DVSR = 0, DVDNT = 0, DVCR = 0, DVDNTH = 0, DVDNTL = 0, DVDNTUH = 0, DVDNTUL = 0;
     } m_divu;
@@ -239,6 +245,7 @@ private:
     void Divide64();
     void RunDma(unsigned channel);
     void SyncTimer();
+    void WriteWatchdog(uint32 address, uint16 value);
     void NoteWriter(uint32 address);
     void NoteCall(uint32 site, uint32 target);
 

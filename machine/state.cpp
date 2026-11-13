@@ -27,6 +27,7 @@ void SH2::Serialize(Archive &ar) {
     ar.Pod(m_yieldRequest);
     ar.Pod(INTC);
     ar.Pod(m_frt);
+    ar.Pod(m_wdt);
     ar.Pod(m_divu);
     ar.Pod(m_dma);
     ar.Pod(m_dmaOperation);
