@@ -739,6 +739,16 @@ void Install(Machine &saturn, BootImage image) {
         rom[i * 4 + 2] = static_cast<uint8_t>(vectors[i] >> 8);
         rom[i * 4 + 3] = static_cast<uint8_t>(vectors[i]);
     }
+    // The ROM routines a disc's own licence screen code (the start of its initial program) calls: to set
+    // the video chip up, to put the licence text there, and when the screen is over. A game may run that code itself, to show the
+    // screen while it loads (Saturn Bomberman); here they do nothing, and the screen stays empty.
+    for (uint32_t entry : {0x5E4u, 0x5E8u, 0x5ECu}) {
+        const uint32_t address = Address(kReturn);
+        rom[entry + 0] = static_cast<uint8_t>(address >> 24);
+        rom[entry + 1] = static_cast<uint8_t>(address >> 16);
+        rom[entry + 2] = static_cast<uint8_t>(address >> 8);
+        rom[entry + 3] = static_cast<uint8_t>(address);
+    }
 #ifdef SATRECOMP_OWN_MACHINE
     saturn.LoadRom(rom.data(), rom.size());
 #else
