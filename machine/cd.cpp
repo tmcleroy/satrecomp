@@ -43,9 +43,19 @@ void Machine::CdReset() {
     m_cd.periodicDue = m_now + m_clock / 75;
 }
 
+// The drive answers in 4 KiB of every 32 KiB of its megabyte, its registers repeated every 64 bytes there. The
+// rest is not its own: a game that looks for the modem that shares the area (at 0x25895001 and 0x2582503D)
+// reads nothing there, and its accesses must not be taken for the data port's.
+static bool CdAnswers(uint32 address) {
+    return (address & 0x7FFF) < 0x1000;
+}
+
 uint16 Machine::CdRead(uint32 address) {
     auto &cd = m_cd;
-    if (address < 0x90000 || address >= 0x98000 || (address & 0xFFFF) < 0x08) { // the data port (0x25818000, 0x25898000)
+    if (!CdAnswers(address)) {
+        return 0;
+    }
+    if ((address & 0x3F) < 0x08) { // the data port (0x25818000, 0x25898000)
         if (cd.transferOffset >= cd.transferSize) {
             return 0xFFFF;
         }
@@ -81,6 +91,9 @@ uint16 Machine::CdRead(uint32 address) {
 
 void Machine::CdWrite(uint32 address, uint16 value) {
     auto &cd = m_cd;
+    if (!CdAnswers(address)) {
+        return;
+    }
     switch (address & 0x3C) {
     case 0x08: cd.HIRQ &= value; break; // (writing 0 to a bit clears it)
     case 0x0C: cd.HIRQMask = value; break;
