@@ -10,7 +10,7 @@ the code of the games ported so far needs, and where a choice had to be made it 
 | `sh2_ops.h` | The instruction set as a table of bit patterns (the generator reads it too) |
 | `machine.h`, `machine.cpp` | Memory and the bus; the system control unit (interrupts to the master CPU, its two timers, DMA); the system manager (slave and sound CPU on/off, clock change, time of day, control pads); the sound chip's clock; the run loop |
 | `vdp.cpp` | The video chips' registers and timing: the parts of a line and a frame, blanking interrupts, framebuffer erase and swap, the VDP1's command table (walked at once; the renderer draws) |
-| `cd.cpp` | The CD drive's command interface, as far as the games still use it: status, table of contents, buffer set-up, seek, and data sectors read into a buffer of 200 and taken through the data port (one partition, no filters) |
+| `cd.cpp` | The CD drive's command interface, as far as the games use it: status, table of contents, seek, play (data sectors read into a buffer of 200 through the selector's filters, by range of frame addresses, into its partitions, and taken through the data port; audio tracks handed to the port's music player), and the drive's own reading of directories and files |
 
 The picture is made by `video/` and the samples by `sound/` (chip and 68000); the machine owns their memory
 and tells them what the game writes and when a line or a sample is due.

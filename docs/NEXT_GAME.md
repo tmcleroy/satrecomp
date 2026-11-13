@@ -96,3 +96,23 @@ each (the hash covers the code, not its constant pool) and registers them. Fight
 - The effect of each SH-2's own cache on a loop: the slave waits in the movie player's loop while the master
   clears the player away (until the clock change stops the slave); it goes on from its cache
   (`CachedLoop` in runtime/recomp.cpp).
+
+## What Saturn Bomberman met
+
+The third game, and the first not built on Sega AM2's engine: none of its routines is replaced (no
+`games/<id>/src` at all). It reads its files with Sega's file library as it is, through the CD drive, so it
+needed more of the drive and less of anything else:
+
+- The SH-2's watchdog timer in interval mode: the game serves its file requests from that interrupt.
+- A game that runs its disc's licence screen code itself (the start of the initial program, at 06002100) to
+  show the screen while its loader reads the main program: that code calls three routines through pointers
+  in the ROM (5E4, 5E8, 5EC). They do nothing here, and the screen stays empty.
+- The drive's file system commands (70 to 75), the selector's filters by range of frame addresses and its
+  partitions (30, 40, 44, 46, 48), and play by track for the audio tracks (the port's music player makes the
+  sound). Subheader conditions are not compared: nothing on this disc is told apart by them.
+- The drive's address decoding: the game looks for the modem in the drive's megabyte (bytes at 0x25895001 on,
+  and a write to 0x2582503D) once a frame, for as long as it runs.
+- Its "execute dump" service (0600026C) is still not written; the game calls it when its movie library
+  reports an error, which no longer happens.
+
+It needs no sync point and no fine slices: the slave CPU is never started.

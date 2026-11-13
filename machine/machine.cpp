@@ -283,6 +283,9 @@ void Machine::BusWrite8(uint32 a, uint8 v) {
         BusWrite16(a & ~1u, v);
         return;
     }
+    if ((a >> 20) == 0x58 && ((a & 0x7FFF) >= 0x1000 || (a & 0x3F) < 0x08)) {
+        return; // (not a register of the CD drive's: reading the word first would take one from its data port)
+    }
     // (a byte of a register of a word: the other byte stays)
     if ((a >> 20) == 0x5D || (a >> 20) == 0x5F || (a >> 20) == 0x58) {
         const uint16 word = BusRead16(a & ~1u);

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- A third game, Saturn Bomberman, starts on the toolkit and plays (its licence screen, opening movie, title,
+  menus, Normal, Battle and Master games), with no routine of its replaced: it uses Sega's file library as it
+  is, through the CD drive. What it needed:
+  - The SH-2's watchdog timer: its counter and, in interval mode, the interrupt (the game serves its file
+    requests from it).
+  - The ROM routines a disc's own licence screen code calls (the pointers at 5E4, 5E8 and 5EC): the game runs
+    that code itself while it loads its main program. They do nothing here; the screen stays empty.
+  - The CD drive's file system commands: change directory (70), read directory (71), the entries held (72),
+    file information (73), read file (74), abort (75).
+  - The CD drive's selector: the filter the drive is connected to (30), a filter's range of frame addresses
+    (40), mode (44) and outputs (46), and the buffer's partitions each by itself (48, 51 to 54, 61 to 63).
+    Subheader conditions (42) are still not compared.
+  - Play by track (10 with a track and an index): audio tracks are played by the port's music player
+    (`runtime/music.h`) into the sound chip's CD input, and the drive reports where it is.
+  - Only the drive's own addresses answer (4 KiB of every 32 KiB of its megabyte, its registers repeated every
+    64 bytes). Every other address there was taken for the data port: the game looks for the modem that
+    shares the area all the while it runs, and each look took a word out of a sector being transferred.
+
 - Save unlocks (`Game::saveUnlocks`, for a game's "unlock everything" cheat): the native backup library gives
   the game its save file with fields of it raised (bits set, a count at least so much), and takes out what it
   added when the game writes the file, so that the file kept is the player's own and a count goes on from
