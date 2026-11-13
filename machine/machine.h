@@ -213,15 +213,41 @@ private:
         uint32 playEnd = 0;
         uint32 buffered = 0;  // sectors read into the buffer and not taken
         uint32 bufferFAD[200] = {}; // ... their frame addresses, oldest first
+        uint8 bufferPartition[200] = {}; // ... and the buffer partition each is in
+        // The selector: a sector read goes to the filter the drive is connected to, and from there to the
+        // partition of the filter's "true" output if it is in the filter's range of frame addresses (when the
+        // filter has one), else on to the filter of its "false" output
+        struct Filter {
+            uint8 mode = 0, trueOutput = 0, falseOutput = 0xFF;
+            uint32 rangeStart = 0, rangeCount = 0;
+        };
+        Filter filters[24] = {};
+        uint8 connection = 0;  // the filter the drive's sectors go to (0xFF: none)
+        bool audio = false;    // what is being played is audio tracks (runtime/music.h makes the sound)
         bool reading = false;
         bool responseTaken = true; // the last command's response has been read
-        uint16 transfer[204] = {}; // words waiting at the data port: the TOC, or
+        uint16 transfer[254 * 6] = {}; // words waiting at the data port: the TOC or file information, or
         uint32 transferFAD[200] = {}; // sectors from the buffer, by frame address (transferSectors of them)
         uint32 transferSectors = 0;
         uint32 transferSize = 0, transferOffset = 0; // in words
         uint32 actualSize = 0; // words, as worked out by "calculate actual size"
         uint64 periodicDue = 0;
+        // The drive's own reading of the disc's directories (the file system commands, 70 to 75)
+        struct FileInfo {
+            uint32 fad = 0, size = 0;
+            uint8 unit = 0, gap = 0, number = 0, attributes = 0;
+        };
+        FileInfo files[254] = {};  // of the current directory, from file number fileOffset on
+        FileInfo self = {}, parent = {}; // its entries 0 and 1: itself and the directory it is in
+        uint32 fileCount = 0, fileOffset = 2;
+        bool directoryEnd = true;  // the directory has no entries after those held
+        bool directoryRead = false;
+        bool fileRead = false;     // what is being read is a file (command 74): "done" is said at its end
     } m_cd;
+    using CdFileInfo = decltype(m_cd.self);
+    bool CdReadDirectory(uint32 fad, uint32 size, uint32 from);
+    bool CdRootDirectory(uint32 &fad, uint32 &size);
+    const CdFileInfo *CdFile(uint32 id);
     void CdReset();
     uint16 CdRead(uint32 address);
     void CdWrite(uint32 address, uint16 value);
@@ -229,6 +255,11 @@ private:
     void CdReport(uint8 status);
     void CdPeriodic();
     void CdSectorRange(uint32 &first, uint32 &count);
+    uint32 CdPartitionSectors(uint8 partition) const;
+    uint32 CdPartitionIndex(uint8 partition, uint32 n) const;
+    void CdResetFilter(unsigned n);
+    void CdStore(uint32 fad);
+    void CdStopAudio(bool pause);
     void CdResumeIfRoom();
 };
 
