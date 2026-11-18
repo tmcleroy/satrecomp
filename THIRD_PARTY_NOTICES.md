@@ -57,6 +57,13 @@ A custom soundtrack (`port/soundtrack.h`) reads the player's music files with th
 | `port/decoders/dr_mp3.h` | dr_libs `dr_mp3` 0.7.4 (the same commit), by David Reid, after minimp3 by lieff | Public domain, or MIT No Attribution |
 | `port/decoders/dr_wav.h` | dr_libs `dr_wav` 0.14.6 (the same commit), by David Reid | Public domain, or MIT No Attribution |
 
+### Country flags (MIT)
+
+`recomp-common/launcher/flags.png` (compiled into the launcher) holds every ISO country's flag from
+[flag-icons](https://github.com/lipis/flag-icons) 7.2.3, Copyright (c) 2013 Panayiotis Lipiridis, MIT License;
+`recomp-common/launcher/src/countries.h` has their names from it. A release carries the license as
+`licenses/flag-icons-MIT.txt`.
+
 ## Downloaded at build time
 
 None of these is stored in this repository.
