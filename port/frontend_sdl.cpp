@@ -8,6 +8,7 @@
 #include "port.h"
 #include "shading.h"
 
+#include "../recomp-common/menu_sdl.h"
 #include "../video/gpu.h"
 
 #include <SDL3/SDL.h>
@@ -89,8 +90,10 @@ int RunWindowed(Port &port) {
     // Test aids, so that what only happens in a window can be tried with nothing shown (docs/FEATURES.md):
     //   SATRECOMP_WINDOW_HIDDEN=1          the window is made but not shown, and the program stays in the background
     //   SATRECOMP_WINDOW_KEYS=PASS:KEY,... on that pass of the loop below the key goes down as from the keyboard
-    //                                      (F1 to F12, ESC, MINUS, EQUALS); or SHOT=path, the picture as it was
-    //                                      last shown; or FEATURE=name=value, as the menu would set it; or QUIT
+    //                                      (F1 to F12, ESC, MINUS, EQUALS, P, O); or SHOT=path, the picture as it was
+    //                                      last shown (the menu's, while it is open); or FEATURE=name=value, as the menu would set it; or
+    //                                      MOUSE=XxY, CLICK=XxY, RIGHT=XxY: the mouse moved there (the window's points),
+    //                                      and its left or right button pressed; or QUIT
     //   SATRECOMP_WINDOW_LOG=1             a line whenever the game stops or goes on, or the speed or the note
     //                                      changes, and every 60 frames, with the time
     const bool testHidden = getenv("SATRECOMP_WINDOW_HIDDEN") != nullptr, testLog = getenv("SATRECOMP_WINDOW_LOG") != nullptr;
@@ -285,13 +288,13 @@ int RunWindowed(Port &port) {
     };
     shading.keepLast = !testSteps.empty(); // (for SATRECOMP_WINDOW_KEYS' SHOT)
 
-    // The in-game menu: opened and closed by Esc, F1, a gamepad's Back/Select button (alone, or with Start
-    // held) or a stick's click (the game is left from its "Quit game"). While it is open the game stands
-    // still and the pad works the menu; buttons held as it closes do not reach the game until let go.
+    // The in-game menu, with the controls of the other ports (recomp-common/menu_sdl.h): opened and closed by Esc,
+    // F1, Tab (unless the game has it), a gamepad's Guide, its left stick's click, or Start and Back (Select) together
+    // (the game is left from its "Quit game"). While it is open the game stands still and the pad, the keys and the
+    // mouse work the menu; buttons held as it closes do not reach the game until let go.
     uint16_t previousPad = 0, heldAtClose = 0;
-    unsigned previousMenu = 0;
-    bool bothHeld = false;    // a gamepad's Start and Select (Back) together: the menu
-    bool backToggled = false; // Back's own press has opened or closed the menu, and Back is still held
+    recomp::sdl::MenuChord chord;  // a gamepad's Start and Back together
+    recomp::MenuRepeat menuRepeat; // (the arrows held go on through the rows and the choices)
     std::vector<uint32_t> menuBase, menuPicture;
     uint32_t menuWidth = 0, menuHeight = 0;
     bool menuDirty = false;
@@ -303,6 +306,40 @@ int RunWindowed(Port &port) {
             menuDirty = true;
         }
     };
+    // Where the menu's picture is in the window, in the window's pixels, as each way of showing it puts it there (for
+    // the mouse): the GPU's (the swapchain's size), the software one (the SDL renderer's output, in the window's
+    // points when the window has no high pixel density), or through a shader (the OpenGL window's pixels)
+    auto menuPlace = [&]() {
+        recomp::sdl::MenuPlace place;
+        place.width = static_cast<int>(menuWidth);
+        place.height = static_cast<int>(menuHeight);
+        const int scaling = satrecomp::FeatureValue("display_scaling"), shape = satrecomp::FeatureValue("display_shape");
+        SDL_FRect where{};
+        int wide = 0, high = 0;
+        if (shaded) {
+            shading.Size(wide, high);
+            where = port.gpu ? port.gpu->Fit(wide, high)
+                             : satrecomp::video::FitPicture(wide, high, static_cast<float>(menuWidth), static_cast<float>(menuHeight), 4.0f / 3.0f, scaling, shape);
+        } else if (port.gpu) {
+            SDL_GetWindowSizeInPixels(window, &wide, &high);
+            where = port.gpu->Fit(wide, high);
+        } else if (renderer) {
+            SDL_GetCurrentRenderOutputSize(renderer, &wide, &high);
+            where = satrecomp::video::FitPicture(wide, high, static_cast<float>(texW), static_cast<float>(texH), 4.0f / 3.0f, scaling, shape);
+            // (the renderer's output to the window's pixels, should they differ)
+            int pixelsWide = 0, pixelsHigh = 0;
+            SDL_GetWindowSizeInPixels(window, &pixelsWide, &pixelsHigh);
+            if (wide > 0 && high > 0 && pixelsWide > 0 && pixelsHigh > 0) {
+                const float sx = static_cast<float>(pixelsWide) / static_cast<float>(wide), sy = static_cast<float>(pixelsHigh) / static_cast<float>(high);
+                where = {where.x * sx, where.y * sy, where.w * sx, where.h * sy};
+            }
+        }
+        place.x = where.x;
+        place.y = where.y;
+        place.w = where.w;
+        place.h = where.h;
+        return place;
+    };
     auto quickState = [&](bool save) {
         std::string error;
         const std::string path = port.StatePath(port.menu.Slot());
@@ -312,9 +349,20 @@ int RunWindowed(Port &port) {
     };
 
     // For practice: the reset point (F2 sets it, F3 or the right stick's click goes back to it), the game
-    // stopped (F4) and gone on a frame at a time (F8), and its speed (- and =, or the menu). A note at the
-    // top says what was done, for a while.
+    // stopped (P, or F4) and gone on a frame at a time (O, or F8), and its speed (- and =, or the menu). A note at
+    // the top says what was done, for a while. P and O are the game's when a player has them; O is the free
+    // camera's (farther) while a game's free camera is on (Game::lookOn), F8 is the frame step's then.
     bool paused = false, stepFrame = false;
+    int speedCredit = 0; // (the game's frames owed: Menu::Rate's frames each tick of the screen's, one run per `ticks`)
+    auto pauseKey = [&](SDL_Scancode key) {
+        return key == SDL_SCANCODE_F4 || (key == SDL_SCANCODE_P && !KeyBound(SDL_SCANCODE_P));
+    };
+    auto oSteps = [&]() {
+        return !KeyBound(SDL_SCANCODE_O) && !(satrecomp::TheGame().lookOn && satrecomp::TheGame().lookOn());
+    };
+    auto stepKey = [&](SDL_Scancode key) {
+        return key == SDL_SCANCODE_F8 || (key == SDL_SCANCODE_O && oSteps());
+    };
     uint64_t noteUntil = 0;
     std::string noteShown;
     auto showNote = [&](const std::string &text) {
@@ -333,9 +381,8 @@ int RunWindowed(Port &port) {
             note(error);
         }
     };
-    auto setSpeed = [&](int speed) {
-        port.menu.SetSpeed(speed);
-        note("SPEED " + std::to_string(port.menu.Speed()) + "%");
+    auto speedNote = [&]() {
+        return "SPEED " + port.menu.SpeedName();
     };
 
     const double kFrameNs = 1e9 / 59.8261; // NTSC Saturn field rate
@@ -388,11 +435,29 @@ int RunWindowed(Port &port) {
             static const struct {
                 const char *name;
                 SDL_Scancode code;
-            } kKeys[] = {{"ESC", SDL_SCANCODE_ESCAPE}, {"MINUS", SDL_SCANCODE_MINUS}, {"EQUALS", SDL_SCANCODE_EQUALS}, {"F1", SDL_SCANCODE_F1}, {"F2", SDL_SCANCODE_F2},
+            } kKeys[] = {{"P", SDL_SCANCODE_P}, {"O", SDL_SCANCODE_O}, {"ESC", SDL_SCANCODE_ESCAPE}, {"MINUS", SDL_SCANCODE_MINUS}, {"EQUALS", SDL_SCANCODE_EQUALS}, {"F1", SDL_SCANCODE_F1}, {"F2", SDL_SCANCODE_F2},
                          {"F3", SDL_SCANCODE_F3},  {"F4", SDL_SCANCODE_F4},       {"F5", SDL_SCANCODE_F5},         {"F6", SDL_SCANCODE_F6}, {"F7", SDL_SCANCODE_F7},
                          {"F8", SDL_SCANCODE_F8},  {"F9", SDL_SCANCODE_F9},       {"F10", SDL_SCANCODE_F10},       {"F11", SDL_SCANCODE_F11}, {"F12", SDL_SCANCODE_F12}};
             if (step.what == "QUIT") {
                 running = false;
+            } else if (step.what.rfind("MOUSE=", 0) == 0 || step.what.rfind("CLICK=", 0) == 0 || step.what.rfind("RIGHT=", 0) == 0) {
+                // (the mouse moved to X Y in the window's points, MOUSE=XxY; and its left or right button pressed there)
+                float x = 0, y = 0;
+                sscanf(step.what.c_str() + 6, "%fx%f", &x, &y);
+                SDL_Event mouse{};
+                mouse.type = SDL_EVENT_MOUSE_MOTION;
+                mouse.motion.x = x;
+                mouse.motion.y = y;
+                SDL_PushEvent(&mouse);
+                if (step.what[0] != 'M') {
+                    mouse = {};
+                    mouse.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+                    mouse.button.button = step.what[0] == 'C' ? SDL_BUTTON_LEFT : SDL_BUTTON_RIGHT;
+                    mouse.button.down = true;
+                    mouse.button.x = x;
+                    mouse.button.y = y;
+                    SDL_PushEvent(&mouse);
+                }
             } else if (step.what.rfind("FEATURE=", 0) == 0) {
                 const size_t equals = step.what.find('=', 8);
                 if (equals != std::string::npos) {
@@ -402,7 +467,10 @@ int RunWindowed(Port &port) {
                 // (shaded: what the preset drew, as the window shows it)
                 std::vector<uint32_t> drawn;
                 int drawnWidth = 0, drawnHeight = 0;
-                if (shaded && shading.ReadBack(drawn, drawnWidth, drawnHeight)) {
+                if (port.menu.IsOpen() && !menuPicture.empty()) {
+                    // (the menu open: the menu's picture, as it was last drawn)
+                    WritePng(step.what.substr(5).c_str(), menuPicture.data(), menuWidth, menuHeight);
+                } else if (shaded && shading.ReadBack(drawn, drawnWidth, drawnHeight)) {
                     WritePng(step.what.substr(5).c_str(), drawn.data(), static_cast<uint32_t>(drawnWidth), static_cast<uint32_t>(drawnHeight));
                 } else {
                     port.SaveShot(step.what.substr(5));
@@ -418,7 +486,7 @@ int RunWindowed(Port &port) {
             }
         }
         if (testLog) {
-            const std::string now = std::string(port.menu.IsOpen() ? "menu" : paused ? "stopped" : "running") + " speed " + std::to_string(port.menu.Speed()) + " slot " +
+            const std::string now = std::string(port.menu.IsOpen() ? "menu" : paused ? "stopped" : "running") + " speed " + port.menu.SpeedName() + " slot " +
                                     std::to_string(port.menu.Slot()) + " note \"" + noteShown + "\"";
             if (now != logged || (port.frame % 60 == 0 && port.frame != loggedFrame)) {
                 logged = now;
@@ -430,8 +498,22 @@ int RunWindowed(Port &port) {
         while (SDL_PollEvent(&ev)) {
             switch (ev.type) {
             case SDL_EVENT_QUIT: running = false; break;
+            case SDL_EVENT_MOUSE_MOTION:
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_WHEEL:
+                if (port.menu.IsOpen()) {
+                    recomp::Menu::Chosen chosen;
+                    if (recomp::sdl::MouseEvent(ev, window, menuPlace(), port.menu.Shared(), chosen)) {
+                        port.MenuAct(port.menu.ActionOf(chosen));
+                        menuDirty = true;
+                        if (!port.menu.IsOpen()) {
+                            heldAtClose = previousPad;
+                        }
+                    }
+                }
+                break;
             case SDL_EVENT_KEY_DOWN:
-                if ((ev.key.scancode == SDL_SCANCODE_ESCAPE || ev.key.scancode == SDL_SCANCODE_F1) && !ev.key.repeat) {
+                if (recomp::sdl::MenuKey(ev.key.scancode, !KeyBound(SDL_SCANCODE_TAB)) && !ev.key.repeat) {
                     toggleMenu();
                 } else if (ev.key.scancode == SDL_SCANCODE_F5 || ev.key.scancode == SDL_SCANCODE_F9) {
                     // F5 keeps the game in the slot, F9 goes back to it; F6 / F7: the slot before, the next
@@ -442,14 +524,23 @@ int RunWindowed(Port &port) {
                     if (!port.menu.IsOpen()) {
                         resetPoint(ev.key.scancode == SDL_SCANCODE_F2);
                     }
-                } else if (ev.key.scancode == SDL_SCANCODE_F4) {
-                    paused = !paused;
-                } else if (ev.key.scancode == SDL_SCANCODE_F8) {
-                    paused = true;
-                    stepFrame = true;
+                } else if (pauseKey(ev.key.scancode)) {
+                    if (!ev.key.repeat && !port.menu.IsOpen()) {
+                        paused = !paused;
+                    }
+                } else if (stepKey(ev.key.scancode)) {
+                    if (!port.menu.IsOpen()) {
+                        paused = true;
+                        stepFrame = true;
+                    }
                 } else if (ev.key.scancode == SDL_SCANCODE_MINUS || ev.key.scancode == SDL_SCANCODE_EQUALS) {
-                    const int speed = port.menu.Speed();
-                    setSpeed(ev.key.scancode == SDL_SCANCODE_MINUS ? (speed == 100 ? 50 : 25) : (speed == 25 ? 50 : 100));
+                    port.menu.Faster(ev.key.scancode == SDL_SCANCODE_MINUS ? -1 : 1);
+                    note(speedNote());
+                    menuDirty = true;
+                } else if (ev.key.scancode == SDL_SCANCODE_F12 && !ev.key.repeat) {
+                    if (!port.menu.IsOpen()) {
+                        note(port.Screenshot());
+                    }
                 } else if (ev.key.scancode == SDL_SCANCODE_F6 || ev.key.scancode == SDL_SCANCODE_F7) {
                     port.menu.SetSlot(port.menu.Slot() + (ev.key.scancode == SDL_SCANCODE_F7 ? 1 : -1));
                     menuDirty = true;
@@ -462,9 +553,8 @@ int RunWindowed(Port &port) {
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
                 if (ButtonBound(ev.gbutton.button)) {
                     // (a button given to the game does only that)
-                } else if (ev.gbutton.button == SDL_GAMEPAD_BUTTON_BACK || ev.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_STICK) {
+                } else if (recomp::sdl::MenuButton(static_cast<SDL_GamepadButton>(ev.gbutton.button))) {
                     toggleMenu();
-                    backToggled = backToggled || ev.gbutton.button == SDL_GAMEPAD_BUTTON_BACK;
                 } else if (ev.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_STICK && !port.menu.IsOpen()) {
                     resetPoint(port.resetPoint.empty()); // (the first click sets it)
                 }
@@ -499,48 +589,33 @@ int RunWindowed(Port &port) {
             for (size_t i = 0; i < gamepads.size() && i < 2; i++) {
                 pads[i] |= ReadGamepad(gamepads[i], static_cast<int>(i));
             }
-            // (the buttons themselves, on any gamepad, whatever they do in the game)
-            bool both = false, back = false;
-            for (SDL_Gamepad *gamepad : gamepads) {
-                const bool held = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_BACK);
-                back = back || held;
-                both = both || (held && SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_START));
-            }
             uint16_t pressed = pads[0] & ~previousPad;
             previousPad = pads[0];
-            // Start and Select held together open and close the menu. Select alone does that here already, so
-            // when its own press has just done it the menu is not switched a second time; either way the
+            // Start and Back (Select) held together, on any gamepad, whatever they do in the game: the menu. The
             // second of the two to go down is not also a press in the menu (Start chooses a row there), and
             // neither reaches the game until let go.
-            if (both && !bothHeld) {
-                if (!backToggled) {
-                    toggleMenu();
-                }
+            if (chord.Step(gamepads.data(), static_cast<int>(gamepads.size()))) {
+                toggleMenu();
                 pressed = 0;
                 heldAtClose = previousPad;
             }
-            bothHeld = both;
-            backToggled = backToggled && back;
             // The menu's buttons are the same whatever the game's are set to: the arrows, the d-pad and the
-            // left stick (and the game's own directions); Space, Enter and A choose; Backspace and B go back
-            unsigned menuNow = 0;
-            menuNow |= (previousPad & kPadUp) || keys[SDL_SCANCODE_UP] ? recomp::kMenuUp : 0;
-            menuNow |= (previousPad & kPadDown) || keys[SDL_SCANCODE_DOWN] ? recomp::kMenuDown : 0;
-            menuNow |= (previousPad & kPadLeft) || keys[SDL_SCANCODE_LEFT] ? recomp::kMenuLeft : 0;
-            menuNow |= (previousPad & kPadRight) || keys[SDL_SCANCODE_RIGHT] ? recomp::kMenuRight : 0;
-            menuNow |= keys[SDL_SCANCODE_SPACE] || (keys[SDL_SCANCODE_RETURN] && !(SDL_GetModState() & SDL_KMOD_ALT)) ? recomp::kMenuConfirm : 0;
-            menuNow |= keys[SDL_SCANCODE_BACKSPACE] ? recomp::kMenuBack : 0;
-            for (SDL_Gamepad *gamepad : gamepads) {
-                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_UP) ? recomp::kMenuUp : 0;
-                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_DOWN) ? recomp::kMenuDown : 0;
-                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_LEFT) ? recomp::kMenuLeft : 0;
-                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT) ? recomp::kMenuRight : 0;
-                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH) ? recomp::kMenuConfirm : 0;
-                menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_EAST) ? recomp::kMenuBack : 0;
+            // left stick (and the game's own directions); Space, Enter and A choose; Backspace and B go back.
+            // Held, the arrows go on (MenuRepeat), counted from when the menu opened.
+            unsigned menuHeld = recomp::sdl::MenuHeld(keys, gamepads.data(), static_cast<int>(gamepads.size()));
+            menuHeld |= (previousPad & kPadUp) ? recomp::kMenuUp : 0;
+            menuHeld |= (previousPad & kPadDown) ? recomp::kMenuDown : 0;
+            menuHeld |= (previousPad & kPadLeft) ? recomp::kMenuLeft : 0;
+            menuHeld |= (previousPad & kPadRight) ? recomp::kMenuRight : 0;
+            unsigned menuPressed = 0;
+            if (port.menu.IsOpen()) {
+                menuPressed = menuRepeat.Step(menuHeld);
+            } else {
+                // (what is held as it opens is not a press)
+                menuRepeat.m_held = menuHeld;
+                menuRepeat.m_frames = 0;
             }
-            unsigned menuPressed = menuNow & ~previousMenu;
-            previousMenu = menuNow;
-            if (both) {
+            if (chord.held) {
                 menuPressed = 0;
             }
             if (port.menu.IsOpen()) {
@@ -603,7 +678,7 @@ int RunWindowed(Port &port) {
             } else {
                 showSoftware();
             }
-            SDL_Delay(8);
+            SDL_Delay(16); // (about the screen's rate: MenuRepeat counts these)
             nextFrame = SDL_GetTicksNS();
             continue;
         }
@@ -616,18 +691,30 @@ int RunWindowed(Port &port) {
             noteUntil = 0;
         }
         if (!noteUntil) { // (nothing just done to tell of: how things stand)
-            showNote(paused ? "PAUSED  F8: A FRAME ON  F4: GO ON" : port.menu.Speed() != 100 ? "SPEED " + std::to_string(port.menu.Speed()) + "%" : "");
+            const std::string step = oSteps() ? "O" : "F8", go = KeyBound(SDL_SCANCODE_P) ? "F4" : "P";
+            showNote(paused ? "PAUSED  " + step + ": A FRAME ON  " + go + ": GO ON" : !port.menu.FullSpeed() ? speedNote() : "");
         }
-        const bool runs = !paused || stepFrame;
-        stepFrame = false;
-        if (runs) {
-            port.stepping = paused; // (a frame at a time: no run-ahead)
-            port.RunFrame();
+        // (how many of the game's frames this tick of the screen's: one, stopped none or the one stepped, slowed
+        // one every so many ticks, faster several)
+        int runs = 0;
+        if (paused) {
+            runs = stepFrame ? 1 : 0;
+            speedCredit = 0;
         } else {
-            audio.pending.clear();
+            const recomp::layout::Speed rate = port.menu.Rate();
+            speedCredit += rate.frames;
+            while (speedCredit >= rate.ticks) {
+                speedCredit -= rate.ticks;
+                runs++;
+            }
         }
-        if (port.menu.Speed() != 100) {
-            audio.pending.clear(); // (no sound in slow motion)
+        stepFrame = false;
+        port.stepping = paused; // (a frame at a time: no run-ahead)
+        for (int run = 0; run < runs && !port.quit && (port.opt.frames == 0 || port.frame < port.opt.frames); run++) {
+            port.RunFrame();
+        }
+        if (runs == 0 || !port.menu.FullSpeed()) {
+            audio.pending.clear(); // (no sound slowed or faster)
         }
 
         if (audio.stream && !audio.pending.empty()) {
@@ -693,7 +780,7 @@ int RunWindowed(Port &port) {
         }
 
         if (!port.opt.unthrottled) {
-            nextFrame += static_cast<uint64_t>(kFrameNs * 100 / port.menu.Speed());
+            nextFrame += static_cast<uint64_t>(kFrameNs);
             const uint64_t now = SDL_GetTicksNS();
             if (now < nextFrame) {
                 SDL_DelayPrecise(nextFrame - now);

@@ -38,6 +38,13 @@ follow it. recomp-common's own `THIRD_PARTY_NOTICES.md` has the table, file by f
 The 5x7 dot-matrix font of the menu (`recomp-common/text.h`) is the generic character set of LCD
 and LED displays, typed in for recomp-common.
 
+### Country flags (MIT)
+
+`recomp-common/launcher/flags.png` (compiled into the launcher) holds every ISO country's flag from
+[flag-icons](https://github.com/lipis/flag-icons) 7.2.3, Copyright (c) 2013 Panayiotis Lipiridis, MIT License;
+`recomp-common/launcher/src/countries.h` has their names from it. The license is
+`recomp-common/launcher/flags-LICENSE.txt`; a game that gives out built programs carries it with them.
+
 ### librashader's C header (MIT)
 
 `port/librashader.h` is the C header of [librashader](https://github.com/SnowflakePowered/librashader)
@@ -71,7 +78,8 @@ None of these is stored in this repository.
 | [zlib](https://zlib.net) | zlib. Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler | Screenshots (PNG); the system's |
 
 Each download is checked against its published SHA-256. A game that gives out built programs must
-carry the license texts of SDL 3, Dear ImGui and Inter with them (the font is inside the launcher),
+carry the license texts of SDL 3, Dear ImGui, Inter (the font is inside the launcher) and flag-icons (the
+country flags, above) with them,
 and the GPL-3.0 with the offer of source that goes with it.
 
 ## Tools used to build (not included in builds)
