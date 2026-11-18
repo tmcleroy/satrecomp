@@ -347,15 +347,22 @@ void TouchControls::Draw() {
     }
     // The face buttons in three colours (as the Saturn's pad has them, a column each), the rest grey
     static const int kColours[3][3] = {{70, 140, 255}, {80, 200, 110}, {240, 70, 70}};
+    // (every label in one size: the size the longest of the big buttons' fits in, and the small ones' theirs)
+    const auto fits = [&](const Control &c) {
+        return c.label.size() > 3 ? std::max(1.0f, std::floor(c.radius * by * 1.6f / (c.label.size() * recomp::text::kCharWidth))) : dot;
+    };
+    float bigSize = dot, smallSize = dot;
+    for (const Control &c : m_controls) {
+        float &size = c.radius == m_controls.front().radius ? bigSize : smallSize;
+        size = std::min(size, fits(c));
+    }
     for (size_t i = 0; i < m_controls.size(); i++) {
         const Control &c = m_controls[i];
         const int *colour = c.colour >= 0 ? kColours[c.colour] : nullptr;
         const int r = colour ? colour[0] : 200, g = colour ? colour[1] : 200, b = colour ? colour[2] : 200;
         p.Disc(c.x * by, c.y * by, c.radius * by, 0, r, g, b, down[i] ? 0.65f : 0.25f);
         p.Disc(c.x * by, c.y * by, c.radius * by, 1.5f * dot, r, g, b, 0.7f);
-        // (a long label smaller, to fit)
-        const float size = c.label.size() > 3 ? std::max(1.0f, std::floor(c.radius * by * 1.6f / (c.label.size() * recomp::text::kCharWidth))) : dot;
-        p.Text(c.x * by, c.y * by, std::min(size, dot), c.label, 0.85f);
+        p.Text(c.x * by, c.y * by, c.radius == m_controls.front().radius ? bigSize : smallSize, c.label, 0.85f);
     }
 }
 

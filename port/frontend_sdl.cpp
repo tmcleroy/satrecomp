@@ -399,6 +399,12 @@ int RunWindowed(Port &port) {
     };
 
     const double kFrameNs = 1e9 / 59.8261; // NTSC Saturn field rate
+#ifdef __ANDROID__
+    const bool speedLog = true;
+#else
+    const bool speedLog = getenv("SATRECOMP_SPEED_LOG") != nullptr;
+#endif
+    uint64_t speedFrom = SDL_GetTicksNS(), speedPass = speedFrom, speedLongest = 0, speedFrame = 0;
     uint64_t nextFrame = SDL_GetTicksNS();
     bool running = true;
     uint64_t pass = 0, loggedFrame = ~0ull;
@@ -769,6 +775,23 @@ int RunWindowed(Port &port) {
                 }
             } else {
                 showSoftware();
+            }
+        }
+
+        // (how fast it runs, a line every ten seconds in the log: on Android, where a phone may not keep up, or
+        // with SATRECOMP_SPEED_LOG; the frames run against the Saturn's, and the longest pass)
+        if (speedLog) {
+            const uint64_t now = SDL_GetTicksNS();
+            speedLongest = std::max(speedLongest, now - speedPass);
+            speedPass = now;
+            if (now - speedFrom >= 10'000'000'000ull) {
+                const double seconds = static_cast<double>(now - speedFrom) / 1e9;
+                const double rate = static_cast<double>(port.frame - speedFrame) / seconds;
+                fprintf(stderr, "speed: %.1f frames a second (%.0f%% of the Saturn's), longest pass %.1f ms\n", rate, rate * kFrameNs / 1e7,
+                        static_cast<double>(speedLongest) / 1e6);
+                speedFrom = now;
+                speedFrame = port.frame;
+                speedLongest = 0;
             }
         }
 
