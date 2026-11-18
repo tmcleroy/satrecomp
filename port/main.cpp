@@ -24,7 +24,9 @@
 
 #include "game_info.h" // generated from games/<id>/game.cfg
 
-#include <SDL3/SDL_main.h> // (on Android the game is a library whose SDL_main its activity calls: port/android.cpp)
+#ifdef __ANDROID__
+#include <SDL3/SDL_main.h> // (the game is a library whose SDL_main its activity calls: port/android.cpp)
+#endif
 
 #include <algorithm>
 #include <cstdlib>
