@@ -206,10 +206,12 @@ static bool ReadFile(const std::string &path, std::vector<uint8_t> &out) {
 // The disc's files for the game's native file loading: the player's disc, and then a second disc of the game
 // (--extra-disc) for the files that are not on the first (Fighting Vipers' Japanese disc carries a character that
 // the American one does not). Only read, as the first. A second disc that cannot be read is said and left out.
-// Widescreen: the game's splits for the frame about to run (Game::wideSplitsOn)
+// Widescreen: the game's splits for the frame about to run (Game::wideSplitsOn), and whether it keeps to 4:3
+// (Game::pillarbox)
 void Port::SetWideSplitsOn() {
     if (videoRenderer) {
         videoRenderer->SetWideSplitsOn(!satrecomp::TheGame().wideSplitsOn || satrecomp::TheGame().wideSplitsOn());
+        videoRenderer->SetPillarbox(satrecomp::TheGame().pillarbox && satrecomp::TheGame().pillarbox());
     }
 }
 

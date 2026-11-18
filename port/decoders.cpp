@@ -11,8 +11,13 @@
 
 #define STB_VORBIS_NO_PUSHDATA_API
 #include "decoders/stb_vorbis.c"
+// (file-local: the reference build links Ymir, whose disc loaders carry their own dr_flac and dr_mp3)
+#define DRFLAC_API static
+#define DRFLAC_PRIVATE static
 #define DR_FLAC_IMPLEMENTATION
 #include "decoders/dr_flac.h"
+#define DRMP3_API static
+#define DRMP3_PRIVATE static
 #define DR_MP3_IMPLEMENTATION
 #include "decoders/dr_mp3.h"
 #define DR_WAV_IMPLEMENTATION

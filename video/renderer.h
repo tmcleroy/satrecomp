@@ -95,6 +95,11 @@ public:
     void SetWideSplitsOn(bool on) {
         m_wideSplitsOn = on;
     }
+    // Whether the frame about to be drawn keeps to the hardware's picture, black at the sides, though it has a
+    // 3D floor (the game says, frame by frame: Game::pillarbox): a screen laid out for 4:3 alone
+    void SetPillarbox(bool on) {
+        m_pillarbox = on;
+    }
     void SetGpuFloor(bool on) {
         m_gpuFloor = on;
     }
@@ -284,6 +289,7 @@ private:
     }
     std::vector<WideSplit> m_wideSplits;
     bool m_wideSplitsOn = true;
+    bool m_pillarbox = false;
     void SplitLine(uint32 layer, uint32 row, uint32 *line) const;
     void WidenWindow(std::vector<uint8> &line) const;
     void WidenQuad(Quad &quad) const;

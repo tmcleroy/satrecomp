@@ -121,6 +121,10 @@ struct Game {
     // Whether wideSplits apply to the frame about to run (the screen they were made for is up; a layer's same rows
     // on another screen hold something else). Not given: always.
     bool (*wideSplitsOn)() = nullptr;
+    // Whether the frame about to run is a screen laid out for 4:3 alone, shown in widescreen with black at the
+    // sides even where the game draws its 3D floor (a scene framed by its own borders, with whatever the scroll
+    // screens hold beyond them). Not given: never.
+    bool (*pillarbox)() = nullptr;
     void (*frame)() = nullptr;                                     // after every frame the game ran
     void (*state)(Archive &ar) = nullptr;                          // the game sources' own state, for save states
     // A training session is on (the game's own idea of one): the training aids (kFeatureTraining) work only

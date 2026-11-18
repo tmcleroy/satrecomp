@@ -336,7 +336,10 @@ The launcher's switch (`--widescreen`), or the menu's Display page while playing
 (`Game::wideSplits`; Fighting Vipers: `games/fighting_vipers/src/widescreen.cpp`, the gauges and names move
 out to the edges, the timer and messages stay in the middle). A game says frame by frame whether its splits
 apply (`Game::wideSplitsOn`): the same rows of the same layer hold other screens too (Fighting Vipers' character
-select, its training display), which the splits would cut apart.
+select, its training display), which the splits would cut apart. A screen with a 3D floor that is laid out for
+4:3 alone (a scene in a frame of the game's own, with what the scroll screens hold beyond it) keeps to the
+hardware's picture, black at the sides, when the game says so frame by frame (`Game::pillarbox`; Fighting Vipers'
+staff roll).
 
 ## The Display page
 
