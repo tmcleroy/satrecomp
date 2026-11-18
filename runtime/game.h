@@ -97,8 +97,8 @@ struct SongDisc {
 
 // Pictures a game can write out for the player (the menu's Export pictures: port/pictures.h), handed over one at a
 // time. `picture`: in the Saturn's colour (16-bit words, big-endian, red in the low five bits), `width` by `height`
-// dots, `stride` dots from one row to the next; written as a JPEG. `file`: a file that is a picture already (a
-// JPEG on the disc), written as it is. `name`: the file's name without its extension.
+// dots, `stride` dots from one row to the next; written as a PNG (exactly). `file`: a file that is a picture already (a
+// JPEG on the disc, say), written as it is. `name`: the file's name without its extension.
 struct PictureOut {
     std::function<void(const std::string &name, const uint8_t *pixels, int width, int height, int stride)> picture;
     std::function<void(const std::string &name, const std::vector<uint8_t> &bytes, const std::string &extension)> file;

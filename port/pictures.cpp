@@ -4,7 +4,7 @@
 #include "pictures.h"
 
 #include "game.h"
-#include "jpeg_write.h"
+#include "png_write.h"
 
 #include <filesystem>
 #include <fstream>
@@ -25,6 +25,9 @@ std::string FileName(const std::string &name) {
 }
 
 bool WriteFile(const std::filesystem::path &path, const std::vector<uint8_t> &bytes) {
+    if (bytes.empty()) {
+        return false;
+    }
     std::ofstream file(path, std::ios::binary);
     file.write(reinterpret_cast<const char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     return static_cast<bool>(file);
@@ -65,7 +68,8 @@ int ExportPictures(const std::string &folder, std::string &error) {
                 }
             }
         }
-        if (WriteFile(std::filesystem::path(folder) / (FileName(name) + ".jpg"), EncodeJpeg(rgb.data(), width, height, 95))) {
+        if (WriteFile(std::filesystem::path(folder) / (FileName(name) + ".png"),
+                      EncodePng(rgb.data(), static_cast<uint32_t>(width), static_cast<uint32_t>(height)))) {
             written++;
         } else {
             failed++;

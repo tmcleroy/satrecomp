@@ -59,9 +59,9 @@ void Menu::Configure(bool withStates) {
                                           [](const satrecomp::Feature &f) { return std::string(f.category) == "Game"; });
         const std::string folder = PicturesFolder();
         config.pages.push_back({"Pictures", gamePage ? "Game" : "",
-                                "Export the game's pictures as JPEG files, and show the folder they go to.", false});
+                                "Export the game's pictures as PNG files, and show the folder they go to.", false});
         config.commands.push_back({"Pictures", "Export pictures",
-                                   "Writes the game's pictures (its gallery and the like) as JPEG files to " + folder +
+                                   "Writes the game's pictures (its gallery and the like) as PNG files to " + folder +
                                        " (the pictures folder in your files: the launcher's Game page, YOUR FILES, Show). "
                                        "Files already there are written over."});
         config.commands.push_back({"Pictures", "Show pictures folder",

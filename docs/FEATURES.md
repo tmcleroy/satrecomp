@@ -178,9 +178,9 @@ first. A file is read on a thread of its own from the moment its song is asked f
 three songs kept in memory), changed to the CD's rate on the way.
 **Export pictures.** A game that sets `Game::exportPictures` hands the toolkit its pictures (in the Saturn's 16-bit
 colour, or files that are pictures already), and the menu gets a Pictures page under Game (on the first page for a
-game with no Game page) with two commands: Export pictures writes them as JPEG files
-(`port/jpeg_write.h`: baseline, no colour subsampling, quality 95) to `pictures/` in the player's folder (where
-settings.ini is: the launcher's YOUR FILES), saying in its description where and, when done, how many; Show pictures
+game with no Game page) with two commands: Export pictures writes them as PNG files, exactly as the Saturn
+shows them (`port/png_write.h`; files that are pictures already are written as they are), to `pictures/` in the
+player's folder (where settings.ini is: the launcher's YOUR FILES), saying in its description where and, when done, how many; Show pictures
 folder opens that folder in the file manager. `--export-pictures FRAME[:FOLDER]` does the same in a test. A game
 reaches both discs' files for them through `DiscFileNames`, `ReadDiscFile` and `ReadExtraDiscFile` (the second
 disc's own copy of a file both have).
