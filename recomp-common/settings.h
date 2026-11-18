@@ -26,6 +26,10 @@ namespace recomp {
 class Ini {
 public:
     explicit Ini(std::filesystem::path path);
+    // (a path as text is UTF-8, as SDL's and the launcher's are: by its wide name on Windows, where a folder with an
+    // accent in it is not in the system's code page)
+    explicit Ini(const std::string &path);
+    explicit Ini(const char *path) : Ini(std::string(path)) {}
     void load();
     bool save() const;
     // "" when the key is not there

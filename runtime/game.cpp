@@ -132,6 +132,27 @@ void SetRunningAhead(bool on) {
     g_runningAhead = on;
 }
 
+namespace {
+    // (a feature whose switch is on the launcher's first page: that switch too, in launcher.ini beside
+    // settings.ini, or the launcher would turn it back the next time the game is started)
+    void KeepFirstPage(const char *name, int value) {
+        if (g_settingsPath.empty()) {
+            return;
+        }
+        for (const Feature &feature : TheGame().features) {
+            if ((feature.flags & kFeatureFirstPage) && !strcmp(feature.name, name)) {
+                const std::string launcherIni = (std::filesystem::path(g_settingsPath).parent_path() / "launcher.ini").string();
+                if (std::filesystem::exists(launcherIni)) {
+                    recomp::Ini prefs(launcherIni);
+                    prefs.load();
+                    prefs.set("video", name, value ? "1" : "0");
+                    prefs.save();
+                }
+            }
+        }
+    }
+} // namespace
+
 void SetFeature(const char *name, bool on) {
     SetFeatureValue(name, on ? 1 : 0);
 }
@@ -162,18 +183,27 @@ void SetFeatureValue(const char *name, int value) {
             settings.save();
         }
     }
-    // (a feature whose switch is on the launcher's first page: that switch too, in launcher.ini beside
-    // settings.ini, or the launcher would turn it back the next time the game is started)
-    for (const Feature &feature : TheGame().features) {
-        if ((feature.flags & kFeatureFirstPage) && !strcmp(feature.name, name)) {
-            const std::string launcherIni = (std::filesystem::path(g_settingsPath).parent_path() / "launcher.ini").string();
-            if (std::filesystem::exists(launcherIni)) {
-                recomp::Ini prefs(launcherIni);
-                prefs.load();
-                prefs.set("video", name, value ? "1" : "0");
-                prefs.save();
-            }
-        }
+    KeepFirstPage(name, value);
+}
+
+void ResetFeatures() {
+    // (every feature as the launcher's default preset, Enhanced, has it)
+    const std::vector<recomp::FeatureInfo> features = FeatureList();
+    recomp::Ini settings(g_settingsPath);
+    if (!g_settingsPath.empty()) {
+        settings.load();
+    }
+    recomp::SetPreset(settings, features, "enhanced");
+    const std::vector<int> values = recomp::FeatureValues(settings, features);
+    for (size_t i = 0; i < values.size(); i++) {
+        g_on[features[i].name] = values[i];
+    }
+    if (g_settingsPath.empty()) {
+        return;
+    }
+    settings.save();
+    for (size_t i = 0; i < values.size(); i++) {
+        KeepFirstPage(features[i].name.c_str(), values[i]);
     }
 }
 

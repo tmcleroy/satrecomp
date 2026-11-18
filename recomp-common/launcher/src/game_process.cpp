@@ -180,7 +180,7 @@ bool GameProcess::start(const std::filesystem::path& program, const std::vector<
     waiter_ = std::thread([this, pid] {
         int status = 0;
         waitpid(pid, &status, 0);
-        exit_code_ = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        exit_code_ = WIFEXITED(status) ? WEXITSTATUS(status) : WIFSIGNALED(status) ? -WTERMSIG(status) : -1;  // (a crash: minus its signal)
         running_ = false;
         SDL_Event event{};
         event.type = SDL_EVENT_USER;

@@ -11,6 +11,7 @@
 #pragma once
 
 #include "../recomp-common/menu.h"
+#include "../recomp-common/menu_layout.h"
 
 #include <cstdint>
 #include <string>
@@ -19,7 +20,7 @@ namespace port {
 
 class Menu {
 public:
-    enum class Action { None, Save, Load, SetResetPoint, GoToResetPoint, ResetGame, ExportPictures, ShowPictures, Quit };
+    enum class Action { None, Save, Load, SetResetPoint, GoToResetPoint, ResetGame, ResetOptions, ExportPictures, ShowPictures, Quit };
 
     // withStates: show the save state rows and the reset point's
     void Open(bool withStates);
@@ -35,10 +36,16 @@ public:
     // (The tests' way in. A player's presses come through Press.)
     Action Buttons(uint16_t pressed);
     // The menu's own buttons newly pressed (recomp::kMenu... bits), which the frontend makes from keys and
-    // gamepad buttons that are the same whatever the game's are set to: the arrows, the d-pad and the left
-    // stick; Space, Enter and A choose; Backspace and B go back.
+    // gamepad buttons that are the same whatever the game's are set to (recomp-common/menu_sdl.h, MenuHeld, and the
+    // game's own directions), held ones repeated (MenuRepeat)
     Action Press(unsigned buttons);
-    // The "Sound" row: the frontend plays nothing while this is set (--mute starts with it set)
+    // The mouse (recomp-common/menu_sdl.h, MouseEvent): what the menu returned for it
+    Action ActionOf(const recomp::Menu::Chosen &chosen);
+    // The shared menu itself (for the mouse)
+    recomp::Menu &Shared() {
+        return m_menu;
+    }
+    // The "Mute" row: the frontend plays nothing while this is set (--mute starts with it set)
     bool muted = false;
     int Slot() const {
         return m_menu.Slot();
@@ -46,9 +53,19 @@ public:
     void SetSlot(int slot) {
         m_menu.SetSlot(slot);
     }
-    // How fast the game is to run, in hundredths (100, 50, 25)
-    int Speed() const;
-    void SetSpeed(int speed);
+    // How fast the game is to run: `frames` of the game's in `ticks` of the Saturn's field rate
+    // (recomp-common/menu_layout.h, Speeds: 1/8 to 8x)
+    recomp::layout::Speed Rate() const;
+    bool FullSpeed() const {
+        return Rate().frames == Rate().ticks;
+    }
+    // The speed's name ("Full", "1/2", "2x")
+    std::string SpeedName() const {
+        return Rate().name;
+    }
+    // A speed slower (by -1) or faster (+1) than now (the - and = keys); and full speed again
+    void Faster(int by);
+    void SetFullSpeed();
     // A line to tell the player (why not, say), until the next press
     void Note(const std::string &text) {
         m_menu.Note(text);
@@ -61,6 +78,8 @@ public:
 private:
     // Tells the shared menu what this one has: its rows, the features, the speeds
     void Configure(bool withStates);
+    // (the speeds alone, so that - and = work before the menu is first opened)
+    void ConfigureSpeeds();
 
     recomp::Menu m_menu;
     bool m_configured = false;

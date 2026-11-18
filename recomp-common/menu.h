@@ -30,6 +30,15 @@ enum : unsigned {
     kMenuBack = 32,    // leaves a page for the one it was reached from; on the first page, closes the menu
 };
 
+// What the mouse did (Menu::Mouse), at a place in the picture the menu was last drawn over
+enum class MenuMouse {
+    Move,      // over a row: that row is chosen
+    Click,     // the left button: on a row, chooses it and does what Confirm does there
+    Back,      // the right button (anywhere): what Back does
+    WheelUp,   // the wheel: the row above, as Up
+    WheelDown, // the row below, as Down
+};
+
 // A row of the first page.
 struct MenuRow {
     enum Kind {
@@ -43,11 +52,14 @@ struct MenuRow {
         Quit,   // "Quit game": Chosen::Quit
         Resume, // closes the menu
         Mute,   // "Mute": off or on, through MenuConfig::muted and setMuted (left out without them)
+        Reset,  // "Reset game": Chosen::Reset (the host starts the game again, as if switched off and on)
+        ResetOptions, // "Reset all options": the speed back to full, and Chosen::ResetOptions (the host puts every
+                      // option back as it first was)
     };
     Kind kind;
     int id;                  // Action: handed back when chosen
     std::string title;       // Action; Page: the page's name
-    std::string description; // Action
+    std::string description; // Action; Reset, ResetOptions: in place of the menu's own words (what they leave as it is, say)
     MenuRow(Kind kind, int id = 0, std::string title = {}, std::string description = {})
         : kind(kind), id(id), title(std::move(title)), description(std::move(description)) {}
 };
@@ -59,6 +71,10 @@ struct MenuFeature {
     std::string description;
     // For a choice: the names, the first being the one that means off. Empty: on (1) or off (0).
     std::vector<std::string> choices = {};
+    // A choice of many (stages, say) whose player keeps favourites (MenuConfig::favourite): Confirm on its row marks the
+    // choice shown as one, or not (any of them: a list of stages may have none that means off), and a row under it goes
+    // through the favourites alone
+    bool favourites = false;
 };
 
 // Something the game can do when asked: Chosen::Command with its place in MenuConfig::commands.
@@ -93,6 +109,10 @@ struct MenuConfig {
     // Optional: whether the menu offers a choice of a feature (settings.h, MenuChoices): Left, Right and Confirm pass
     // over those it does not. Off (the first) and the one chosen now always are.
     std::function<bool(size_t feature, int choice)> offered;
+    // Optional: a favourites feature's (MenuFeature::favourites) choices the player has marked, and marking one or not
+    // (the host keeps them). Without these, such a feature is as any other.
+    std::function<bool(size_t feature, int choice)> favourite;
+    std::function<void(size_t feature, int choice, bool marked)> setFavourite;
     // The Speed row: the speeds' names, slowest first, and what the row's description says; full speed is the one
     // at normalSpeed (the slower ones before it, the faster after), the speed the menu starts at
     std::vector<std::string> speeds;
@@ -107,10 +127,20 @@ struct MenuConfig {
     std::string closeName = "Esc";
 };
 
+// Presses, with the arrows repeating while held, for a host that knows whether each button is down: given what is down
+// each frame (kMenu... bits), what is pressed this frame: what has gone down since the last, and Up, Down, Left and
+// Right again while held alone (after kRepeatAfter frames, then every kRepeatEvery; faster after kFasterAfter)
+struct MenuRepeat {
+    static constexpr int kRepeatAfter = 18, kRepeatEvery = 4, kFasterAfter = 60, kFasterEvery = 2;
+    unsigned Step(unsigned held);
+    unsigned m_held = 0; // (what was down at the last step, and for how many frames the arrows have been)
+    int m_frames = 0;
+};
+
 class Menu {
 public:
     struct Chosen {
-        enum Kind { None, Save, Load, Quit, Action, Command } kind = None;
+        enum Kind { None, Save, Load, Quit, Action, Command, Reset, ResetOptions } kind = None;
         int id = 0; // Action: the row's id. Command: its place in MenuConfig::commands.
     };
 
@@ -124,7 +154,8 @@ public:
     bool IsOpen() const {
         return m_open;
     }
-    // Buttons newly pressed (kMenu... bits): Up/Down choose, Confirm changes a row or goes into a page,
+    // Buttons newly pressed (kMenu... bits; MenuRepeat makes them from those held): Up/Down choose, Confirm changes a row
+    // or goes into a page (on a favourites feature's row, marks the choice shown a favourite or not),
     // Left/Right change a row with several values, Right on a page's row goes into that page, Left and Back
     // leave a page (for the one it was reached from), Back on the first page closes.
     // Returns what the host is to do (with Slot() for Save and Load); the host closes the menu if that
@@ -141,6 +172,9 @@ public:
         return m_speed;
     }
     void SetSpeed(int speed);
+    // The mouse: where it is, in the pixels of the picture last given to Draw (the host maps the window's place to
+    // that picture's), and what it did. Returns as Buttons does. A press away from the rows does nothing.
+    Chosen Mouse(MenuMouse what, float x, float y);
     // A line to tell the player (why not, say), until the next press
     void Note(const std::string &text) {
         m_note = text;
@@ -156,6 +190,7 @@ private:
         bool divider = false; // a line above it: the first of a group of rows
     };
     void Fill();
+    bool Favourites(size_t feature) const;
     const MenuPage *PageOf(const std::string &name) const;
     std::string Parent(const std::string &page) const;
     bool Exists(const std::string &page) const;
@@ -171,6 +206,13 @@ private:
     int m_speed = -1; // (-1: not chosen yet, so full speed)
     int m_slot = 1;
     std::string m_note;
+    // (where Draw last put each row shown, for Mouse: the row, and its top and bottom; and the panel's left and right)
+    struct Shown {
+        int row;
+        float top, bottom;
+    };
+    mutable std::vector<Shown> m_shown;
+    mutable float m_panelLeft = 0, m_panelRight = 0;
 };
 
 } // namespace recomp

@@ -7,9 +7,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 
 #include "embedded.h"
+#include "i18n.h"
 
 namespace ui {
 
@@ -232,7 +234,11 @@ void pop_font() {
     ImGui::PopFont();
 }
 
+// (every word drawn is looked up in the player's language: i18n.h)
+using recomp::Tr;
+
 void text(const char* value, Font font, float value_size, ImU32 text_color, float wrap) {
+    value = Tr(value);
     push_font(font, value_size);
     ImGui::PushStyleColor(ImGuiCol_Text, text_color);
     if (wrap > 0.0f) {
@@ -246,11 +252,18 @@ void text(const char* value, Font font, float value_size, ImU32 text_color, floa
     pop_font();
 }
 
-ImVec2 text_size(const char* value, Font font, float value_size, float wrap) {
+namespace {
+// (the words as they are: already looked up)
+ImVec2 shown_size(const char* value, Font font, float value_size, float wrap = 0.0f) {
     push_font(font, value_size);
     ImVec2 result = ImGui::CalcTextSize(value, nullptr, false, wrap > 0.0f ? wrap : -1.0f);
     pop_font();
     return result;
+}
+}  // namespace
+
+ImVec2 text_size(const char* value, Font font, float value_size, float wrap) {
+    return shown_size(Tr(value), font, value_size, wrap);
 }
 
 void focus_item() {
@@ -283,7 +296,10 @@ void gap(float value) {
 bool button(const char* label, Kind kind, float width, bool enabled, float height) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     ImGuiID id = window->GetID(label);
-    const char* end = ImGui::FindRenderedTextEnd(label);
+    // (what is before a "##" is shown, in the player's language; the whole is what the button is known by)
+    const std::string words(label, ImGui::FindRenderedTextEnd(label));
+    label = Tr(words.c_str());
+    const char* end = label + std::strlen(label);
     float font_size = height >= 44.0f ? 16.0f : size::kBody;
     push_font(Font::Semibold, font_size);
     ImVec2 label_size = ImGui::CalcTextSize(label, end);
@@ -368,7 +384,7 @@ bool dropdown(const char* id_text, const std::vector<std::string>& labels, int& 
     float hover = animate(id + 1, hovered || open ? 1.0f : 0.0f, 22.0f);
     window->DrawList->AddRectFilled(rect.Min, rect.Max, mix(p.control, p.control_hover, hover), px(10));
     push_font(Font::Regular, size::kBody);
-    const char* current = index >= 0 && index < static_cast<int>(labels.size()) ? labels[static_cast<size_t>(index)].c_str() : "";
+    const char* current = Tr(index >= 0 && index < static_cast<int>(labels.size()) ? labels[static_cast<size_t>(index)].c_str() : "");
     float line = ImGui::GetFontSize();
     window->DrawList->AddText(ImVec2(rect.Min.x + px(14), std::round(rect.Min.y + (box.y - line) * 0.5f)), p.text, current);
     pop_font();
@@ -379,8 +395,13 @@ bool dropdown(const char* id_text, const std::vector<std::string>& labels, int& 
         g_values[popup + 1] = 0.0f;
     }
     bool changed = false;
-    ImGui::SetNextWindowPos(ImVec2(rect.Min.x, rect.Max.y + px(6)));
-    ImGui::SetNextWindowSizeConstraints(ImVec2(box.x, 0), ImVec2(box.x, px(320)));
+    // (under the box, or over it where the list would go past the window's foot and there is more room above)
+    const float tall = std::min(px(320), static_cast<float>(labels.size()) * (px(34) + ImGui::GetStyle().ItemSpacing.y) + px(12));
+    const ImGuiViewport* view = ImGui::GetMainViewport();
+    const float below = view->WorkPos.y + view->WorkSize.y - (rect.Max.y + px(6)), above = rect.Min.y - px(6) - view->WorkPos.y;
+    const bool up = tall > below && above > below;
+    ImGui::SetNextWindowPos(ImVec2(rect.Min.x, up ? rect.Min.y - px(6) : rect.Max.y + px(6)), ImGuiCond_Always, ImVec2(0.0f, up ? 1.0f : 0.0f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(box.x, 0), ImVec2(box.x, std::min(px(320), std::max(up ? above : below, px(120)))));
     float shown = ease_out(animate(popup + 1, 1.0f, 20.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(px(6), px(6)));
     if (ImGui::BeginPopupEx(popup, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove)) {
@@ -433,7 +454,7 @@ bool search_box(const char* id_text, char* buffer, size_t size, const char* hint
         ImGui::ClearActiveID();
     }
     ImGui::SetNextItemWidth(box.x - px(34 + 36));
-    bool changed = ImGui::InputTextWithHint(id_text, hint, buffer, size, ImGuiInputTextFlags_EscapeClearsAll);
+    bool changed = ImGui::InputTextWithHint(id_text, Tr(hint), buffer, size, ImGuiInputTextFlags_EscapeClearsAll);
     if (g_focus_next) {
         g_focus_next = false;
         focus_item();
@@ -484,7 +505,7 @@ bool text_field(const char* id_text, char* buffer, size_t size, const char* hint
         ImGui::ClearActiveID();
     }
     ImGui::SetNextItemWidth(box.x - px(24));
-    bool changed = ImGui::InputTextWithHint(id_text, hint, buffer, size);
+    bool changed = ImGui::InputTextWithHint(id_text, Tr(hint), buffer, size);
     if (g_focus_next) {
         g_focus_next = false;
         focus_item();
@@ -548,7 +569,7 @@ bool list_item(const char* label, bool active, float width) {
     window->DrawList->AddRectFilled(rect.Min, rect.Max, mix(fade(p.control, hover * 0.7f), p.control_hover, on), px(8));
     push_font(active ? Font::Semibold : Font::Regular, size::kBody);
     float line = ImGui::GetFontSize();
-    window->DrawList->AddText(ImVec2(rect.Min.x + px(12), std::round(rect.Min.y + (box.y - line) * 0.5f)), p.text, label);
+    window->DrawList->AddText(ImVec2(rect.Min.x + px(12), std::round(rect.Min.y + (box.y - line) * 0.5f)), p.text, Tr(label));
     pop_font();
     focus_ring(rect, id, px(8), true);
     return pressed;
@@ -573,7 +594,7 @@ bool key_chip(const char* id_text, const char* label, bool capturing, float widt
     float line = ImGui::GetFontSize();
     ImVec2 at(rect.Min.x + px(12), std::round(rect.Min.y + (box.y - line) * 0.5f));
     ImVec4 clip(rect.Min.x, rect.Min.y, rect.Max.x - px(8), rect.Max.y);
-    window->DrawList->AddText(nullptr, 0.0f, at, capturing ? p.accent : p.text, label, nullptr, 0.0f, &clip);
+    window->DrawList->AddText(nullptr, 0.0f, at, capturing ? p.accent : p.text, Tr(label), nullptr, 0.0f, &clip);
     pop_font();
     focus_ring(rect, id, px(10));
     return pressed;
@@ -594,8 +615,9 @@ float keycap(const char* key) {
     return box.x;
 }
 
-std::string fit_start(const std::string& value, Font font, float value_size, float width) {
-    if (text_size(value.c_str(), font, value_size).x <= width) {
+std::string fit_start(const std::string& original, Font font, float value_size, float width) {
+    const std::string value = Tr(original);
+    if (shown_size(value.c_str(), font, value_size).x <= width) {
         return value;
     }
     size_t cut = 0;
@@ -606,15 +628,16 @@ std::string fit_start(const std::string& value, Font font, float value_size, flo
             cut++;
         }
         shown = "…" + value.substr(cut);
-        if (text_size(shown.c_str(), font, value_size).x <= width) {
+        if (shown_size(shown.c_str(), font, value_size).x <= width) {
             break;
         }
     }
     return shown;
 }
 
-std::string fit_end(const std::string& value, Font font, float value_size, float width) {
-    if (text_size(value.c_str(), font, value_size).x <= width) {
+std::string fit_end(const std::string& original, Font font, float value_size, float width) {
+    const std::string value = Tr(original);
+    if (shown_size(value.c_str(), font, value_size).x <= width) {
         return value;
     }
     size_t keep = value.size();
@@ -629,7 +652,7 @@ std::string fit_end(const std::string& value, Font font, float value_size, float
             shown.pop_back();
         }
         shown += "…";
-        if (text_size(shown.c_str(), font, value_size).x <= width) {
+        if (shown_size(shown.c_str(), font, value_size).x <= width) {
             break;
         }
     }

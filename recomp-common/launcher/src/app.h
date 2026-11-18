@@ -33,6 +33,13 @@
 // one page for each game whose file is chosen (Title).
 enum class Page { Game, Features, Controllers, Library, Title, Multi, Online, Series, Count };
 
+// A run that stopped with an error: its log, kept (logs/stopped-<when>.log), and what the runtime said stopped it
+struct StoppedLog {
+    std::filesystem::path path;
+    std::string reason;
+};
+StoppedLog keep_stopped_log(const std::filesystem::path& folder);
+
 // --play: straight into the game set up earlier (a collection's: --play ID), with `extra` after the launcher's
 // own arguments for it; the exit code
 int play_directly(const std::string& id, const std::vector<std::string>& extra = {});
@@ -77,6 +84,7 @@ private:
         std::string id;                  // a collection's game's (a port's: "")
         std::string name;                // its name; its player folder is named by it
         std::string series;              // a collection's game's series (launcher::CollectionGame::series), or ""
+        std::string released, hardware;  // (launcher::CollectionGame's: for sorting and the hardware choice)
         std::string exe;                 // its program, beside the launcher
         std::string file_section;        // launcher.ini: where its file is ("game", or "game.<id>")
         std::string video_section;       // its Display switches ("video", or "video.<id>")
@@ -88,10 +96,13 @@ private:
         launcher::FileCheck file;        // (under mutex_ when checked on a thread)
         std::atomic<bool> checking{false};
         std::thread checker;
+        bool nearby_tried = false;       // (Description::find_nearby was asked: once, when it had no usable file)
         std::vector<int> values_before;  // its features' values when it was started (a collection's: what its menu changed)
         GameProcess game;                // its program, while it runs (a collection's games can run at once)
         bool was_running = false;
         std::string play_error;          // why it did not start, or ""
+        std::filesystem::path stopped_log;  // its last run stopped with an error: that run's log, kept, or ""
+        std::string stopped_reason;      // and what the log says stopped it ("recomp stop: <this>"), or ""
         // What another game's menu changed of a feature they share while this one was running: set when it
         // ends, unless its own menu changed the same feature
         std::vector<std::pair<std::string, int>> pending;
@@ -111,8 +122,13 @@ private:
         int value;
         std::string note;  // ("": none)
         size_t index;      // in the list it came from
+        std::vector<bool> hidden = {};  // (its choices left out of the dropdown: the port's choice_shown; empty: none)
     };
 
+    // A game's feature on the pages: the port's feature_shown, given the game's file if it was found good
+    bool feature_shown(const Slot& one, size_t feature);
+    // ... and which of its choices the port's choice_shown leaves out (empty: none)
+    std::vector<bool> hidden_choices(const Slot& one, size_t feature);
     Slot& slot() { return *slots_[slot_]; }
     const Slot& slot() const { return *slots_[slot_]; }
     // The collection's games that have a page of their own (their program here, their file chosen and usable), in
@@ -130,11 +146,21 @@ private:
     // after those that are, in the collection's order). The player changes it by dragging a game's row in the
     // sidebar, or with Move up and Move down on the game's page.
     void load_order();
+    // launcher.ini [games] sort: "" (the player's order), "name" or "released": the order load_order() makes, the
+    // player's own order kept beneath it (a game dragged while sorted makes what is shown the player's order)
+    std::string sort_by() const;
+    // The hardware the collection's games name (none, or one: no choice offered), and the one chosen
+    // (launcher.ini [games] hardware; "": all)
+    std::vector<std::string> hardwares() const;
+    std::string hardware_chosen() const;
+    // Whether the game is on the list as the hardware chosen has it
+    bool on_hardware(size_t which) const;
     // order_ with each series' games together, where its first game with a page is (else its first game)
     void group_order();
     // The games with a page as the places of the sidebar's list, in the player's order: a game, or a series' games
     // (two or more of them with a page: launcher::CollectionGame::series), which move together
     std::vector<std::vector<size_t>> units() const;
+    bool grouped(const std::vector<size_t>& unit) const;
     // A row of the sidebar after the collection's own pages: a game's, or a series' (its games', shown under it
     // while it is open). A series' row is its page: its games, each to play or go to.
     struct Row {
@@ -156,6 +182,12 @@ private:
     // Game file.
     void choose_game_file(size_t which);
     void use_game_file(size_t which, const std::string& path);
+    void clear_game_file(size_t which);
+    // A file the folder the download was unpacked to had for a game, its check already done: its file, unless the
+    // player chose one meanwhile, or the game's is usable (Description::find_beside)
+    void adopt_file(size_t which, const std::string& path, const launcher::FileCheck& file);
+    // That folder looked in, once, for the games that have no usable file (on a thread; frame() takes what it found)
+    void look_beside();
     void play(size_t which, const std::vector<std::string>& extra = {});
     // A collection's: every game's file looked for in a folder (on a thread), or a file or folder given to
     // whichever game takes it
@@ -175,7 +207,9 @@ private:
     void set_preset(const std::string& preset);
     void set_feature(Slot& slot, size_t index, int value);
     void set_shared(size_t index, int value);
-    void after_game(Slot& slot);  // (a collection's game has ended: what its menu changed is the others' too)
+    void after_game(Slot& slot);
+    void keep_stopped_log(Slot& slot);           // (it stopped with an error: its log kept before the next run)
+    void stopped_note(Slot& slot, float width);  // (and what to send, and where)  // (a collection's game has ended: what its menu changed is the others' too)
 
     // Controls (bindings.h): what each player's keys and gamepad buttons do, kept in settings.ini. A
     // collection's are every game's, but for a game given a layout of its own (launcher.ini, [controls]: its id
@@ -202,6 +236,7 @@ private:
     Page own_page(int index, size_t* which = nullptr) const;
     launcher::PageContext context(float width);
     void game_page(float width);
+    void notice_card(float width);
     void library_page(float width);
     void title_page(size_t which, float width);
     void series_page(size_t which, float width);  // a series' page (`which`: one of its games)
@@ -227,8 +262,10 @@ private:
     // if they switched it on; and the row with that switch
     std::vector<std::string> host_arguments(const launcher::Online& online) const;
     // Join's: the match (a code or an address), and the player's name, which the game shows the other player
-    std::vector<std::string> join_arguments(const launcher::Online& online, const std::string& match) const;
+    std::vector<std::string> join_arguments(const launcher::Online& online, const std::string& match, bool watching = false) const;
     void arcade_row(float width, const launcher::Online& online);
+    // The input delay the player chose for the matches they host (`delay_argument`), added to Host's and Invite's
+    void delay_arguments(std::vector<std::string>& args, const launcher::Online& online) const;
     void lobby_card(size_t which, float width, bool ready);
     // The Online page (a collection with a lobby: Collection::lobby): host in the lobby in any game, and every game's
     // open matches
@@ -242,11 +279,23 @@ private:
     void follow_lobby(const std::string& url);
     // The waiting room (Collection::room): checked in at every online_every() while the Online page is open and no game
     // is running, and left when not; its card, and the invitations' card
+    // The waiting room's URL and protocol: the collection's, or the one game's Online card's (nullptr: none)
+    const char* room_url() const;
+    int room_protocol() const;
+    // A game's id in the waiting room: a collection's game's, or the one game's Online::game
+    std::string room_game(size_t which) const;
+    // A launcher of one game: its sidebar's pages in order, each a port's own page (its place in Description::pages) or
+    // -1 - a Page; and the port's own page at a place (-1: none)
+    std::vector<int> single_layout() const;
+    int port_page(int index) const;
+    int place_of(Page kind) const;
+    void single_online_page(float width);
     void follow_room(bool here);
     // A card's small capitals, with "Updates every 10 seconds" at the right, and a spinner beside it while `fetching`
     void live_label(const char* text, float width, bool fetching);
     // A card's only row while there is nothing in it: `text`, with a spinner while `looking`
     void empty_row(float width, const char* text, bool looking);
+    void country_row(float width);
     void room_card(float width, const std::vector<size_t>& playable);
     void invitations_card(float width);
     std::vector<std::string> invite_arguments(const launcher::Online& online, const launcher::RoomPlayer& player) const;
@@ -257,6 +306,10 @@ private:
     static const char* own_version();
     static bool version_matches(const std::string& version);
     void files_card(float width);
+    void game_files_card(const Slot& one, float width);
+    void folder_card(const char* title, const std::filesystem::path& where, bool portable, bool game, float width);
+    void tools_card(float width);
+    void language_card(float width);
 
     // The Multi game page (a collection's MultiModes): a mode's choices and games, and the run of one
     void multi_page(float width);
@@ -316,6 +369,20 @@ private:
     std::vector<std::pair<size_t, std::string>> found_;  // (under mutex_) what it found: (game, file)
     bool found_ready_ = false;                          // (under mutex_)
     std::string find_message_;
+
+    // The folder the download was unpacked to, looked in for the games that have no file (Description::find_beside)
+    struct FoundBeside {
+        size_t which;
+        std::string path;
+        launcher::FileCheck file;  // (the game's own check's, done on that thread)
+    };
+    std::atomic<bool> beside_wanted_{false};  // (a game's description has find_beside)
+    std::atomic<bool> beside_started_{false};
+    std::atomic<bool> beside_running_{false};  // (until frame() has taken what it found)
+    std::atomic<bool> stopping_{false};        // (the launcher is closing: the look stops after the game it is on)
+    std::thread beside_;
+    std::vector<FoundBeside> beside_found_;  // (under mutex_)
+    bool beside_ready_ = false;              // (under mutex_)
 
     char feature_search_[128] = {};  // what the Features page is narrowed to ("": all of them)
     bool focus_search_ = false;      // Ctrl+F (or Cmd+F): into the search box

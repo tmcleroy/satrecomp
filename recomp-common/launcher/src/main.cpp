@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "app.h"
+#include "proxy.h"  // (and on Windows, windows.h: AttachConsole below)
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
 #include "imgui_internal.h"
@@ -72,6 +73,19 @@ void back_is_escape(SDL_Event& event) {
 // desktop with no preference) the launcher matches Steam's own dark look
 bool system_dark() {
     return SDL_GetSystemTheme() != SDL_SYSTEM_THEME_LIGHT;
+}
+
+// The scale the player's display settings ask the UI to take (a Windows desktop at 150%: 1.5; macOS: 1, its window
+// coordinates already being points). SDL_GetWindowDisplayScale is the pixel density instead (2 on a Retina Mac),
+// which the renderer and ImGui's font rasterizer take into account themselves: scaling the style by it draws the
+// whole launcher twice as large, and pushes a row's control out of its card.
+float content_scale(SDL_Window* window) {
+    SDL_DisplayID display = window ? SDL_GetDisplayForWindow(window) : 0;
+    if (!display) {
+        display = SDL_GetPrimaryDisplay();
+    }
+    const float scale = SDL_GetDisplayContentScale(display);
+    return scale > 0.0f ? scale : 1.0f;
 }
 
 // --press: keys as the window would get them, and the buttons of a gamepad that exists only in the program.
@@ -250,6 +264,13 @@ struct TouchScroll {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    // (a windowed program has no console: started from one, its output goes there, unless it was sent elsewhere)
+    if (!GetStdHandle(STD_ERROR_HANDLE) && AttachConsole(ATTACH_PARENT_PROCESS)) {
+        freopen("CONOUT$", "w", stdout);
+        freopen("CONOUT$", "w", stderr);
+    }
+#endif
     std::string screenshot_prefix;
     std::string press;
     bool pressing = false;
@@ -279,6 +300,7 @@ int main(int argc, char** argv) {
             page_id = argv[++i];
         }
     }
+    recomp::UseSystemProxy();  // (Windows' proxy, for the curl the launcher and the game start: proxy.h)
     SDL_SetAppMetadata(LAUNCHER_GAME_NAME, "0.1", LAUNCHER_APP_ID ".launcher");
     if (!prepare_folders(screenshot_prefix.empty())) {  // (portable mode's folder; pictures for a test ask nothing)
         SDL_Quit();
@@ -337,7 +359,7 @@ int main(int argc, char** argv) {
     ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
 
     ui::set_dark(system_dark());
-    ui::apply_style(SDL_GetWindowDisplayScale(window));
+    ui::apply_style(content_scale(window));
     App app(window);
     if (!page_id.empty()) {
         app.set_page(page_id);
@@ -380,7 +402,16 @@ int main(int argc, char** argv) {
             }
             if (event.type == SDL_EVENT_SYSTEM_THEME_CHANGED) {
                 ui::set_dark(system_dark());
-                ui::apply_style(ui::scale());
+                ui::apply_style(content_scale(window));
+            }
+            // (the launcher on another display, with another scale setting: drawn as that display asks)
+            if ((event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) &&
+                event.window.windowID == SDL_GetWindowID(window)) {
+                const float asked = content_scale(window);
+                if (asked != ui::scale()) {
+                    ui::apply_style(asked);
+                    ui::load_fonts();
+                }
             }
             ui::request_frames(3);
         }

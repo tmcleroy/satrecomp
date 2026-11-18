@@ -34,6 +34,9 @@ typedef enum {
   RMENU_ROW_QUIT,    // "Quit game": RMENU_QUIT
   RMENU_ROW_RESUME,  // closes the menu
   RMENU_ROW_MUTE,    // "Sound": on or muted, through the config's muted and setMuted (left out without them)
+  RMENU_ROW_RESET,   // "Reset game": RMENU_RESET
+  RMENU_ROW_RESET_OPTIONS,  // "Reset all options": the speed to full, and RMENU_RESET_OPTIONS
+  RMENU_ROW_PAGE,    // a row for one page, named by `title` (RMenuPage, or any category); the Pages row then leaves it out
 } RMenuRowKind;
 
 // A row of the first page. Rows with the same `group` are together; a line is drawn where it changes.
@@ -58,6 +61,16 @@ typedef struct {
   const char* description;
 } RMenuCommand;
 
+// More about a page than its name (menu.h, MenuPage): the page its row is on ("" or NULL: the first page), what its
+// row says (NULL: "The page of <name> choices."), and whether the Speed and Mute rows are at its top (not 0) rather
+// than wherever the rows put them
+typedef struct {
+  const char* name;
+  const char* parent;
+  const char* description;
+  int speedAndMute;
+} RMenuPage;
+
 // Everything is copied by rmenu_configure; only the two functions and `user` are kept.
 typedef struct {
   const RMenuRow* rows;
@@ -80,9 +93,15 @@ typedef struct {
   // the Mute row: whether the game's sound is off now (not 0), and switching it off and on
   int (*muted)(void* user);
   void (*setMuted)(void* user, int muted);
+  // pages under another page, or whose rows say something of their own
+  const RMenuPage* pages;
+  int pageCount;
+  // the speed that is full speed, by its place in `speeds` (the slower ones before it, the faster after; 0 when
+  // the first is full speed)
+  int normalSpeed;
 } RMenuConfig;
 
-typedef enum { RMENU_NONE, RMENU_SAVE, RMENU_LOAD, RMENU_QUIT, RMENU_ACTION, RMENU_COMMAND } RMenuChosen;
+typedef enum { RMENU_NONE, RMENU_SAVE, RMENU_LOAD, RMENU_QUIT, RMENU_ACTION, RMENU_COMMAND, RMENU_RESET, RMENU_RESET_OPTIONS } RMenuChosen;
 
 RMenu* rmenu_new(void);
 void rmenu_free(RMenu* menu);
@@ -93,6 +112,10 @@ bool rmenu_isOpen(const RMenu* menu);
 // Buttons newly pressed (RMENU_... bits). Returns what the host is to do; *id (may be NULL) is the row's id
 // for RMENU_ACTION and the command's place for RMENU_COMMAND. The host closes the menu if that went well.
 RMenuChosen rmenu_buttons(RMenu* menu, unsigned pressed, int* id);
+// The mouse (menu.h, Menu::Mouse): what it did (RMENU_MOUSE_...) at x, y in the pixels of the picture last drawn
+// over. Returns as rmenu_buttons does.
+enum { RMENU_MOUSE_MOVE, RMENU_MOUSE_CLICK, RMENU_MOUSE_BACK, RMENU_MOUSE_WHEEL_UP, RMENU_MOUSE_WHEEL_DOWN };
+RMenuChosen rmenu_mouse(RMenu* menu, int what, float x, float y, int* id);
 int rmenu_slot(const RMenu* menu);
 void rmenu_setSlot(RMenu* menu, int slot);
 // the speed chosen, by its place in the config's speeds (0: full speed)
@@ -102,6 +125,14 @@ void rmenu_setSpeed(RMenu* menu, int speed);
 void rmenu_note(RMenu* menu, const char* text);
 // over a picture of 32-bit pixels (red in the low byte)
 void rmenu_draw(const RMenu* menu, uint32_t* pixels, int width, int height);
+
+// Presses with the arrows repeating while held (menu.h, MenuRepeat): given what is down each frame (RMENU_... bits),
+// what is pressed this frame. Start with an RMenuRepeat of zeros.
+typedef struct {
+  unsigned held;
+  int frames;
+} RMenuRepeat;
+unsigned rmenu_repeat(RMenuRepeat* repeat, unsigned held);
 
 #ifdef __cplusplus
 }

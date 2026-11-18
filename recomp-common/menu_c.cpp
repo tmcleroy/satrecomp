@@ -35,7 +35,7 @@ void rmenu_configure(RMenu *menu, const RMenuConfig *c) {
         static const recomp::MenuRow::Kind kKinds[] = {
             recomp::MenuRow::Save, recomp::MenuRow::Load, recomp::MenuRow::Slot, recomp::MenuRow::Speed,
             recomp::MenuRow::Pages, recomp::MenuRow::Action, recomp::MenuRow::Quit, recomp::MenuRow::Resume,
-            recomp::MenuRow::Mute,
+            recomp::MenuRow::Mute, recomp::MenuRow::Reset, recomp::MenuRow::ResetOptions, recomp::MenuRow::Page,
         };
         config.groups.back().push_back({kKinds[row.kind], row.id, Str(row.title), Str(row.description)});
     }
@@ -60,6 +60,15 @@ void rmenu_configure(RMenu *menu, const RMenuConfig *c) {
         config.speeds.push_back(Str(c->speeds[i]));
     }
     config.speedDescription = Str(c->speedDescription);
+    config.normalSpeed = c->normalSpeed;
+    for (int i = 0; i < c->pageCount; i++) {
+        const RMenuPage &page = c->pages[i];
+        recomp::MenuPage to{Str(page.name), Str(page.parent), Str(page.description)};
+        if (page.speedAndMute) {
+            to.rows = {recomp::MenuRow::Speed, recomp::MenuRow::Mute};
+        }
+        config.pages.push_back(std::move(to));
+    }
     if (c->confirmName) {
         config.confirmName = c->confirmName;
     }
@@ -96,6 +105,25 @@ RMenuChosen rmenu_buttons(RMenu *menu, unsigned pressed, int *id) {
     case recomp::Menu::Chosen::Quit: return RMENU_QUIT;
     case recomp::Menu::Chosen::Action: return RMENU_ACTION;
     case recomp::Menu::Chosen::Command: return RMENU_COMMAND;
+    case recomp::Menu::Chosen::Reset: return RMENU_RESET;
+    case recomp::Menu::Chosen::ResetOptions: return RMENU_RESET_OPTIONS;
+    default: return RMENU_NONE;
+    }
+}
+
+RMenuChosen rmenu_mouse(RMenu *menu, int what, float x, float y, int *id) {
+    const recomp::Menu::Chosen chosen = menu->menu.Mouse(static_cast<recomp::MenuMouse>(what), x, y);
+    if (id) {
+        *id = chosen.id;
+    }
+    switch (chosen.kind) {
+    case recomp::Menu::Chosen::Save: return RMENU_SAVE;
+    case recomp::Menu::Chosen::Load: return RMENU_LOAD;
+    case recomp::Menu::Chosen::Quit: return RMENU_QUIT;
+    case recomp::Menu::Chosen::Action: return RMENU_ACTION;
+    case recomp::Menu::Chosen::Command: return RMENU_COMMAND;
+    case recomp::Menu::Chosen::Reset: return RMENU_RESET;
+    case recomp::Menu::Chosen::ResetOptions: return RMENU_RESET_OPTIONS;
     default: return RMENU_NONE;
     }
 }
@@ -122,6 +150,16 @@ void rmenu_note(RMenu *menu, const char *text) {
 
 void rmenu_draw(const RMenu *menu, uint32_t *pixels, int width, int height) {
     menu->menu.Draw(pixels, width, height);
+}
+
+unsigned rmenu_repeat(RMenuRepeat *repeat, unsigned held) {
+    recomp::MenuRepeat r;
+    r.m_held = repeat->held;
+    r.m_frames = repeat->frames;
+    const unsigned pressed = r.Step(held);
+    repeat->held = r.m_held;
+    repeat->frames = r.m_frames;
+    return pressed;
 }
 
 } // extern "C"

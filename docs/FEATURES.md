@@ -5,16 +5,21 @@ that game's knowledge, in its own sources (`games/<id>/src`).
 
 ## The in-game menu
 
-Esc, F1, a gamepad's Back/Select button (alone, or together with Start, as in the other ports) or a stick's
-click opens a menu over the game, and closes it. The
-game stands still while it is open. Up/Down choose; A, B, C or Start change a row or go into a page;
-Left/Right change a row with several values (the slot, the speed) and leave a page. Buttons held as it
-closes do not reach the game until let go. Nothing but the menu's "Quit game" row (and closing the window)
-ends the game: Esc does not.
+The controls are the other ports' (recomp-common's `menu_sdl.h`). Esc, F1, Tab (unless a player has it), a gamepad's
+Guide button, its left stick's click, or Start and Back (Select) held together open a menu over the game, and close
+it from any page. The game stands still while it is open. The arrows, the d-pad, the left stick and the game's own
+directions choose (held, they go on: `MenuRepeat`); Enter, Space or A change a row or go into a page; Backspace or B
+go back a page; Left/Right change a row with several values (the slot, the speed) and leave a page. The mouse: over
+a row chooses it, a click confirms, the right button goes back, the wheel goes up and down (`sdl::MouseEvent`, given
+where each way of showing the picture puts it: the GPU's swapchain, the SDL renderer's output, the shader's
+window). Buttons held as it closes do not reach the game until let go. Nothing but the menu's "Quit game" row (and
+closing the window) ends the game: Esc does not.
 
-The first page, in three groups with a line between them: Save state, Load state, Slot (1-9); a row for
-each category of the game's features (which opens a page of them, with Back), Speed, Set reset point, Go to
-reset point; Quit game, Resume. It opens on the page and the row it was closed on.
+The first page is the standard one (recomp-common's `menu_layout.h`, `layout::Standard`): Display, Game (and
+Online, when a port has it); the game's head pages (Alternative modes, with Training mode under it); Save state,
+Load state, Slot (1-9); the pages of other categories and the Saturn's own rows, Set reset point and Go to reset
+point; Reset all options, Reset game, Quit game, Resume. The Game page has Speed and Mute at its top, then Cheats,
+Sound and Pictures, then the game's options. It opens on the page and the row it was closed on.
 
 The menu itself (its look, its rules, the pages made from the features) is the one the recomp ports share:
 `recomp-common/menu.{h,cpp}` and `recomp-common/text.h` are a copy of the `recomp-common` repository's `src/`, made by
@@ -25,13 +30,17 @@ then run `tools/sync-common.sh` here and commit the copy. `port/menu.{h,cpp}` is
 about it: the first page's rows, the Saturn pad's buttons turned into the menu's six, the speeds, and the
 games' features handed over.
 
-Test hook: `--menu FRAME:KEYS[:shot.png]` opens it at that frame and presses (u d l r a s), headless. A run that
+Test hook: `--menu FRAME:KEYS[:shot.png]` opens it at that frame and presses (u d l r a s; b: Back), headless. A run that
 chooses "Quit game" this way ends there.
 
 **Pages.** A game may give the menu pages beyond its categories (`Game::pages`: a name, the page it is under, a
 line saying what it is): those with no parent head the first page, in a group of their own, and the others are
 reached from their parent's page, before its features. A category's features are on the page of its name. As in
 the other ports: "Alternative modes" with "Training mode" under it and "Dummy" under that (Fighting Vipers).
+
+**Reset all options.** Every feature back as the launcher's Enhanced preset has it (`ResetFeatures` in
+`runtime/game.h`; settings.ini says `preset = enhanced` again, and launcher.ini's switches of the first page's
+features follow), and the speed back to full; the note says "Every option is back as it first was."
 
 **Reset game.** The menu's last group has Reset game above Quit and Resume: the port keeps a state taken before
 the game's first frame and goes back to it, so the game starts again as when it was switched on. The save memory
@@ -86,8 +95,14 @@ second off, 100 with 1 frame, 74 with 2. (On the Steam Deck, which does 71 to 95
   goes back to it; on a gamepad the right stick's click does both (the first click sets it); or the menu.
   Check: `--reset-test SET:GO`; with nothing pressed, the 98 frames after going back gave the same state
   hashes as those after it was set.
-- **F4** stops the game and lets it go on; **F8** goes on one frame (and stops it if it was running).
-- **Speed**: 100, 50 or 25 percent (the - and = keys, or the menu). There is no sound in slow motion.
+- **P** (or F4) stops the game and lets it go on; **O** (or F8) goes on one frame (and stops it if it was
+  running). P and O are the game's when a player has given them to it; while a game's free camera is on
+  (`Game::lookOn`) O is its key (farther) and F8 alone steps.
+- **Speed**: the other ports' speeds, 1/8 to 8x (`layout::Speeds`; the - and = keys, or the Game page). The
+  frontend runs the game's frames as `Menu::Rate` says, frames in ticks of the Saturn's field rate: slowed, one
+  every so many; faster, several before the picture is shown. There is no sound off full speed.
+- **F12** saves the picture as shown (but the menu) to `screenshots/` beside settings.ini, named after the game and
+  the time.
 
 A note at the top of the picture says what was done, or that the game is stopped or slowed.
 
@@ -100,8 +115,9 @@ nothing on the screen:
 - `SATRECOMP_WINDOW_HIDDEN=1`: the window is made but not shown, and the program stays in the background
   (run with `--mute`).
 - `SATRECOMP_WINDOW_KEYS=PASS:KEY,...`: on that pass of the loop the key goes down as if from the keyboard
-  (`F1` to `F12`, `ESC`, `MINUS`, `EQUALS`: it is put into SDL's queue and taken by the same code as a real
-  press); `SHOT=path` saves the picture as last shown; `QUIT` ends the run.
+  (`F1` to `F12`, `ESC`, `MINUS`, `EQUALS`, `P`, `O`: it is put into SDL's queue and taken by the same code as a
+  real press); `MOUSE=XxY`, `CLICK=XxY`, `RIGHT=XxY` move the mouse there (the window's points) and press its left
+  or right button; `SHOT=path` saves the picture as last shown (the menu's, while it is open); `QUIT` ends the run.
 - `SATRECOMP_WINDOW_LOG=1`: a line whenever the game stops or goes on, the menu opens, or the speed, the
   slot or the note changes, and every 60 frames, each with the time.
 
