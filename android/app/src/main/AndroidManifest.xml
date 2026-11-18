@@ -33,6 +33,8 @@
         android:extractNativeLibs="true"
         android:hardwareAccelerated="true">
         <!-- The back button reaches the launcher and the games (Back, the game's menu) instead of closing them. -->
+        <!-- (simpleperf may profile a release build, from a computer over adb: nothing else can) -->
+        <profileable android:shell="true" />
         <meta-data android:name="SDL_ENV.SDL_ANDROID_TRAP_BACK_BUTTON" android:value="1" />
         <!-- Landscape, either way up: SDL otherwise lets a resizable window turn with the phone -->
         <meta-data android:name="SDL_ENV.SDL_ORIENTATIONS" android:value="LandscapeLeft LandscapeRight" />
