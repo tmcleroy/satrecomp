@@ -727,8 +727,8 @@ void Renderer::GpuEndFrame() {
         frame.spriteWidth = (m_width >> (doubleWidth || exclusive ? 1 : 0)) + 2 * m_wideExtra;
         frame.spriteHeight = m_height >> (interlaced ? 1 : 0);
         frame.width = LineWidth();
-        // (only a scene with the 3D floor is shown beyond the hardware's picture)
-        frame.blankSides = m_regs2.layerEnabled[1] ? 0 : WideDots();
+        // (only a scene with the 3D floor is shown beyond the hardware's picture, and not one the game keeps to it)
+        frame.blankSides = m_regs2.layerEnabled[1] && !m_pillarbox ? 0 : WideDots();
         frame.height = m_height;
         frame.interlaced = interlaced;
         for (uint32 i = 0; i < 5; i++) {
