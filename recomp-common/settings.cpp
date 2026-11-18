@@ -69,6 +69,13 @@ namespace {
 
 Ini::Ini(std::filesystem::path path) : path_(std::move(path)) {}
 
+Ini::Ini(const std::string &path)
+#ifdef __cpp_char8_t
+    : path_(std::u8string(path.begin(), path.end())) {}
+#else
+    : path_(std::filesystem::u8path(path)) {}
+#endif
+
 void Ini::load() {
     lines_.clear();
     std::ifstream file(path_, std::ios::binary);

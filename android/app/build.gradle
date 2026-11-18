@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Tommy McLeroy. Part of satrecomp: https://github.com/tmcleroy/satrecomp
+// A game's Android app: its launcher and the game, in one APK. Built by the game's tools/release/android.sh, which
+// builds the native libraries (the launcher's, the game's, SDL's) with the NDK and stages them outside the
+// repository, then passes their place and the game's names here: this file only compiles the Java and packs the APK.
+//   -PappId=io.github.tmcleroy.fightingvipers   the game's (game.cfg's app_id)
+//   -PappName="Fighting Vipers"                   its name (game.cfg's name: the launcher's folder is named after it)
+//   -PgameId=fighting_vipers                      its id: lib<id>-launcher.so is the launcher
+//   -PgameVersion=0.1.0                           the game repository's VERSION
+plugins {
+    id 'com.android.application'
+}
+
+def repo = rootProject.projectDir.parentFile
+def stagedDir = project.findProperty('stagedDir') ?: "${repo}/build/android/staged"
+def sdlDir = project.findProperty('sdlDir') ?: "${repo}/build/deps/SDL3-3.4.16"
+def appId = project.findProperty('appId') ?: 'io.github.tmcleroy.satrecomp.example'
+def appName = project.findProperty('appName') ?: 'satrecomp'
+def gameId = project.findProperty('gameId') ?: 'example'
+def gameVersion = project.findProperty('gameVersion') ?: new File(repo, 'VERSION').text.trim()
+
+android {
+    namespace 'io.github.tmcleroy.satrecomp'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId appId
+        minSdk 28
+        targetSdk 34
+        versionCode((project.findProperty('versionCode') ?: '1') as int)
+        versionName gameVersion
+        resValue 'string', 'app_name', appName
+        resValue 'string', 'launcher_library', "${gameId}-launcher".toString()
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+    signingConfigs {
+        // An optional key of your own (-PkeyStore=... -PkeyStorePassword=... -PkeyAlias=... -PkeyPassword=...);
+        // without one the build is signed with the Android debug key, which is fine for sideloading.
+        release {
+            if (project.hasProperty('keyStore')) {
+                storeFile file(project.property('keyStore'))
+                storePassword project.property('keyStorePassword')
+                keyAlias project.property('keyAlias')
+                keyPassword project.property('keyPassword')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig project.hasProperty('keyStore') ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+    sourceSets {
+        main {
+            // SDL's Java half comes straight from the SDL source the native half was built from.
+            java.srcDirs = ['src/main/java', "${sdlDir}/android-project/app/src/main/java"]
+            jniLibs.srcDirs = ["${stagedDir}/jniLibs"]
+            assets.srcDirs = ["${stagedDir}/assets"]
+        }
+    }
+    androidResources {
+        // (a development build's disc, assets/disc/: stored as it is, not packed again)
+        noCompress += ['bin', 'cue', 'iso']
+    }
+    packagingOptions {
+        jniLibs {
+            // Compressed libraries, unpacked when the app is installed: a smaller APK, and the launcher finds each
+            // game's library as a file (recomp-common/launcher/src/game_process.cpp)
+            useLegacyPackaging true
+            keepDebugSymbols += ['**/*.so']   // (stripped by android.sh already)
+        }
+    }
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

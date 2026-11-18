@@ -25,6 +25,7 @@ struct OpenMatch {
     std::string code;
     std::string name;
     int waiting = 0; // (seconds)
+    bool watching = false; // running match: Watch instead of Join
 };
 // The lobby's list, fetched from `url` with the system's curl (blocks: for another thread); false if there was no
 // answer
@@ -45,6 +46,7 @@ struct RoomPlayer {
     std::string id;   // (12 hex digits)
     std::string name;
     std::vector<std::string> games; // (by id: those they have a game file for)
+    std::string country;            // (the two letters of the country they chose to show, or "": flags.h)
 };
 struct Invitation {
     std::string code; // (the match's: joining it is accepting)
@@ -54,6 +56,7 @@ struct Invitation {
 };
 struct RoomCheckIn {
     std::string secret, name;
+    std::string country; // (shown with the name to the others, if the player chose one: two letters, ISO 3166-1)
     std::vector<std::string> games;
     int protocol = 0;
     std::string version;
