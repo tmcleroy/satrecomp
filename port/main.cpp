@@ -390,7 +390,7 @@ bool Port::Init() {
                 fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
                 return false;
             }
-            gpuDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, getenv("SATRECOMP_GPU_DEBUG") != nullptr, nullptr);
+            gpuDevice = satrecomp::video::CreateDevice(getenv("SATRECOMP_GPU_DEBUG") != nullptr);
             gpu = new satrecomp::video::Gpu;
             if (!gpuDevice || !gpu->Init(gpuDevice)) {
                 fprintf(stderr, "No GPU renderer (%s): drawing in software\n", SDL_GetError());
@@ -606,7 +606,7 @@ bool Port::Init() {
             fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
             return false;
         }
-        gpuDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, getenv("SATRECOMP_GPU_DEBUG") != nullptr, nullptr);
+        gpuDevice = satrecomp::video::CreateDevice(getenv("SATRECOMP_GPU_DEBUG") != nullptr);
         gpu = new satrecomp::video::Gpu;
         if (!gpuDevice || !gpu->Init(gpuDevice)) {
             fprintf(stderr, "No GPU renderer (%s): drawing in software\n", SDL_GetError());

@@ -20,6 +20,11 @@ namespace satrecomp::video {
 // whole window
 SDL_FRect FitPicture(int width, int height, float columns, float lines, float aspect, int scaling, int shape);
 
+// The GPU device (Vulkan or Metal), without the optional features SDL asks for unless told not to, none of which the
+// renderer uses: many phones' GPUs lack one (Mali: drawIndirectFirstInstance), and SDL then gives no device at all,
+// which leaves the game drawing in software (no high resolution, no widescreen)
+SDL_GPUDevice *CreateDevice(bool debug);
+
 class Gpu {
 public:
     bool Init(SDL_GPUDevice *device);
