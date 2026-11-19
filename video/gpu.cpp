@@ -111,6 +111,7 @@ bool Gpu::Init(SDL_GPUDevice *device) {
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_clip = true; // (no depth clamping: CreateDevice)
         info.target_info.color_target_descriptions = &target;
         info.target_info.num_color_targets = 1;
         m_hudPipeline = SDL_CreateGPUGraphicsPipeline(m_device, &info);
@@ -147,6 +148,7 @@ bool Gpu::Init(SDL_GPUDevice *device) {
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_clip = true; // (no depth clamping: CreateDevice)
         info.target_info.color_target_descriptions = &target;
         info.target_info.num_color_targets = 1;
         m_quadPipeline = SDL_CreateGPUGraphicsPipeline(m_device, &info);
@@ -160,6 +162,7 @@ bool Gpu::Init(SDL_GPUDevice *device) {
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_clip = true; // (no depth clamping: CreateDevice)
         info.target_info.color_target_descriptions = &target;
         info.target_info.num_color_targets = 1;
         m_composePipeline = SDL_CreateGPUGraphicsPipeline(m_device, &info);
@@ -853,6 +856,7 @@ void Gpu::DrawWindowLayer(SDL_GPUCommandBuffer *cmd, SDL_Window *window, SDL_GPU
             info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
             info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
             info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_clip = true; // (no depth clamping: CreateDevice)
             info.target_info.color_target_descriptions = &target;
             info.target_info.num_color_targets = 1;
             m_windowLayerPipeline = SDL_CreateGPUGraphicsPipeline(m_device, &info);
@@ -885,6 +889,20 @@ void Gpu::DrawWindowLayer(SDL_GPUCommandBuffer *cmd, SDL_Window *window, SDL_GPU
 bool Gpu::ReadShown(std::vector<uint32_t> &pixels) {
     ApplyHud();
     return Read(pixels);
+}
+
+SDL_GPUDevice *CreateDevice(bool debug) {
+    const SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_MSL_BOOLEAN, true);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, debug);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN, false);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_DEPTH_CLAMPING_BOOLEAN, false);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN, false);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_ANISOTROPY_BOOLEAN, false);
+    SDL_GPUDevice *device = SDL_CreateGPUDeviceWithProperties(props);
+    SDL_DestroyProperties(props);
+    return device;
 }
 
 SDL_FRect FitPicture(int width, int height, float columns, float lines, float aspect, int scaling, int shape) {
