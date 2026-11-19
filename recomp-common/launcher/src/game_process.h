@@ -17,7 +17,7 @@ public:
     bool start(const std::filesystem::path& program, const std::vector<std::string>& args, const std::filesystem::path& folder, std::string& error,
                const std::filesystem::path& log = {});
     bool running() const { return running_; }
-    int exit_code() const { return exit_code_; }
+    int exit_code() const { return exit_code_; }  // (ended by a signal: minus the signal, e.g. -11 for SIGSEGV)
     // Runs `program args...` and returns its standard output (for --list-features).
     static std::string output_of(const std::filesystem::path& program, const std::vector<std::string>& args);
 

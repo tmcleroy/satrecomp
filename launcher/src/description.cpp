@@ -212,9 +212,19 @@ const launcher::Description& launcher::describe() {
         Description d;
         d.original = "on the Saturn";
         d.file_heading = "GAME DISC";
+#ifdef __ANDROID__
+        // (Android: the system's picker gives the files, which are copied into the app's folder; the .cue among them
+        // is the disc: recomp-common's launcher, Description::file_many)
+        d.file_intro = "Choose your own copy of the game (a disc image): its .cue file and all its .bin files, together. They are "
+                       "copied into the app's folder.\n\nWhile playing, Back or the screen's Menu button, or Back (Select) on a "
+                       "gamepad, opens the in-game menu.";
+        d.file_empty = "No game disc chosen. Choose its .cue file and all its .bin files.";
+        d.file_many = true;
+#else
         d.file_intro = "Choose your own copy of the game (a disc image). It stays where it is: the launcher only reads it. Pictures you "
                        "export from the in-game menu (Export pictures) go to the pictures folder of YOUR FILES, below.";
         d.file_empty = "No game disc chosen. Drop its .cue file on this window or choose it.";
+#endif
         d.file_not_set_up = "The game isn't set up yet. Open the launcher (without --play) once to choose your game disc.";
         d.file_filter = {"Saturn disc image", "cue;iso"};
         d.file_key = "disc";
@@ -239,7 +249,12 @@ const launcher::Description& launcher::describe() {
         };
         d.bindings = port::BindingTable();
         d.controls_heading = "WHILE PLAYING";
+#ifdef __ANDROID__
+        d.controls = {{"Touch", "The stick at the left, the buttons at the right; MENU opens the in-game menu, as Back does. They hide while a gamepad or keys are used, and come back at a touch."},
+                      {"Gamepad", "Back (Select), alone or with Start, or a stick's click opens and closes the menu. (A button given to the game above does only that.)"}};
+#else
         d.controls = {{"Keys", "Esc or F1: menu (save states, cheats, training aids, quit)   F11: full screen. On a gamepad: Back (Select), alone or with Start, or a stick's click opens and closes the menu. (A button given to the game above does only that.)"}};
+#endif
         return d;
     }();
     return about;

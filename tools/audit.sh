@@ -20,7 +20,8 @@ grep_files() { grep -v -e '^tools/audit\.sh$' -e '^port/decoders/' "$LIST" | tr 
 check "no game, disc, BIOS, save or archive file types" "$(grep -iE '\.(bin|cue|iso|chd|ccd|img|sub|mdf|mds|gdi|rom|bkr|sav|srm|state|zip|7z|rar|key)$' "$LIST" || true)"
 check "nothing made from a game (block lists, generated code, memory dumps, input movies)" "$(grep -E '(^|/)(work|build)/|(^|/)blocks[^/]*\.txt|blocks_[0-9]+\.cpp$|decode\.bin$|(^|/)gen(-ref)?/|\.(dump|ram)$|(^|/)movies/' "$LIST" || true)"
 check "no game but the stand-in" "$(grep -E '(^|/)games/' "$LIST" | grep -v '^example/games/example/game\.cfg$' || true)"
-check "no pictures, sound or video" "$(grep -iE '\.(png|jpe?g|gif|bmp|ppm|webp|mp4|mov|webm|wav|ogg|mp3|flac)$' "$LIST" || true)"
+# (but recomp-common's country flags, compiled into the launcher: THIRD_PARTY_NOTICES.md)
+check "no pictures, sound or video" "$(grep -iE '\.(png|jpe?g|gif|bmp|ppm|webp|mp4|mov|webm|wav|ogg|mp3|flac)$' "$LIST" | grep -vx 'recomp-common/launcher/flags\.png' || true)"
 # (the published checksums of the libraries the builds download, the commits they are pinned to, and the hashes of
 # the copied files, are not keys)
 check "no key-like hex strings (32 digits or more)" "$(grep_files '(^|[^0-9a-fA-F.])[0-9a-fA-F]{32,}([^0-9a-fA-F]|$)' | grep -vE 'YMIR_COMMIT|_COMMIT=[0-9a-f]{40}$|URL_HASH SHA256=[0-9a-f]{64}|SHA256=[0-9a-f]{64}|= [0-9a-f]{64} \]|^recomp-common/COMMIT:|^\.github/workflows/' || true)"

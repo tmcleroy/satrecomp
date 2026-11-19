@@ -248,6 +248,8 @@ std::vector<OpenMatch> Matches(const std::string& json) {
                         Text(json, at, end, "code"), Text(json, at, end, "name")};
         const size_t waiting = json.find("\"waiting\":", at);
         match.waiting = waiting != std::string::npos && waiting < end ? std::atoi(json.c_str() + waiting + 10) : 0;
+        const size_t watching = json.find("\"watching\":true", at);
+        match.watching = watching != std::string::npos && watching < end;
         if (!match.code.empty()) {
             matches.push_back(match);
         }
@@ -272,7 +274,7 @@ bool fetch_lobby(const std::string& url, std::vector<OpenMatch>& matches) {
 
 Room room_check_in(const std::string& url, const RoomCheckIn& me) {
     Room room;
-    const std::string body = "{\"secret\":" + Quoted(me.secret) + ",\"name\":" + Quoted(me.name) + ",\"games\":" + QuotedList(me.games) +
+    const std::string body = "{\"secret\":" + Quoted(me.secret) + ",\"name\":" + Quoted(me.name) + (me.country.empty() ? "" : ",\"country\":" + Quoted(me.country)) + ",\"games\":" + QuotedList(me.games) +
                              ",\"protocol\":" + std::to_string(me.protocol) + ",\"version\":" + Quoted(me.version) +
                              ",\"invitable\":" + (me.invitable ? "true" : "false") + ",\"blocked\":" + QuotedList(me.blocked) +
                              (me.lobby ? ",\"lobby\":true}" : "}");
@@ -280,7 +282,7 @@ Room room_check_in(const std::string& url, const RoomCheckIn& me) {
     if (Post(url, body, &json) != 0 || json.find("\"players\"") == std::string::npos) {
         return room;
     }
-    // {"id":"...","players":[{"id","name","games":[...]}],"invitations":[{"code","from","name","game","title","version"}]}:
+    // {"id":"...","players":[{"id","name","games":[...],"country"}],"invitations":[{"code","from","name","game","title","version"}]}:
     // the service's answer (cps2recomp's online/)
     room.ok = true;
     // (the lobby's list too, asked for: from a service that says it)
@@ -289,7 +291,8 @@ Room room_check_in(const std::string& url, const RoomCheckIn& me) {
     const size_t players = json.find("\"players\":[");
     room.id = Text(json, 0, players, "id");
     for (const auto& [at, end] : Objects(json, "players")) {
-        RoomPlayer player{Text(json, at, end, "id"), Text(json, at, end, "name"), Strings(json, at, end, "games")};
+        RoomPlayer player{Text(json, at, end, "id"), Text(json, at, end, "name"), Strings(json, at, end, "games"),
+                          Text(json, at, end, "country")};
         if (!player.id.empty()) {
             room.players.push_back(player);
         }

@@ -22,6 +22,20 @@ launcher::FileCheck check(const std::string &path) {
     return result;
 }
 
+// Where in the folder the download was unpacked to the game's file may be (launcher.h, Description::find_beside):
+// a file a release ships beside the launcher, as a port's `roms` folder would be.
+std::vector<std::filesystem::path> find_beside(const std::filesystem::path &install_folder) {
+    std::vector<std::filesystem::path> found;
+    std::error_code error;
+    for (const char *name : {"example.rom", "example.bin"}) {
+        const std::filesystem::path one = install_folder / name;
+        if (std::filesystem::is_regular_file(one, error)) {
+            found.push_back(one);
+        }
+    }
+    return found;
+}
+
 std::vector<std::string> arguments(const launcher::Launch &launch) {
     std::vector<std::string> args = {launch.file, "--settings", (launch.folder / "settings.ini").string()};
     if (launch.on("fullscreen")) {
@@ -57,6 +71,7 @@ const launcher::Description &launcher::describe() {
         d.file_filter = {"Game file", "*"};
         d.file_key = "file";
         d.check = check;
+        d.find_beside = find_beside;
         d.arguments = arguments;
         d.display = {
             {"fullscreen", "Full screen", "F11 switches while playing.", false, nullptr},

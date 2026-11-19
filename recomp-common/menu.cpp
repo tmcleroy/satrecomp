@@ -3,9 +3,11 @@
 // The in-game menu (menu.h).
 #include "menu.h"
 
+#include "i18n.h"
 #include "text.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace recomp {
@@ -14,8 +16,32 @@ using namespace text;
 
 namespace {
     // (after MenuRow's kinds, which the first page's rows keep)
-    enum { kRowSave, kRowLoad, kRowSlot, kRowSpeed, kRowAction, kRowQuit, kRowResume, kRowCommand, kRowPage, kRowFeature, kRowBack, kRowMute };
+    enum { kRowSave, kRowLoad, kRowSlot, kRowSpeed, kRowAction, kRowQuit, kRowResume, kRowCommand, kRowPage, kRowFeature, kRowBack, kRowMute, kRowFavourites };
+    constexpr unsigned kArrows = kMenuUp | kMenuDown | kMenuLeft | kMenuRight;
 } // namespace
+
+unsigned MenuRepeat::Step(unsigned held) {
+    unsigned pressed = held & ~m_held;
+    // (the arrows held, and nothing else gone down: on with the count; otherwise from the start)
+    const unsigned arrows = held & kArrows;
+    if (arrows && arrows == (m_held & kArrows) && !pressed) {
+        m_frames++;
+        const bool faster = m_frames >= kFasterAfter;
+        const int after = faster ? kFasterAfter : kRepeatAfter, every = faster ? kFasterEvery : kRepeatEvery;
+        if (m_frames >= kRepeatAfter && (m_frames - after) % every == 0) {
+            pressed |= arrows;
+        }
+    } else {
+        m_frames = 0;
+    }
+    m_held = held;
+    return pressed;
+}
+
+bool Menu::Favourites(size_t feature) const {
+    return m_config.features[feature].favourites && !m_config.features[feature].choices.empty() && m_config.favourite &&
+           m_config.setFavourite;
+}
 
 void Menu::Configure(MenuConfig config) {
     m_config = std::move(config);
@@ -188,6 +214,9 @@ void Menu::Fill() {
         for (size_t i = 0; i < m_config.features.size(); i++) {
             if (m_page == m_config.features[i].category) {
                 m_rows.push_back({kRowFeature, i, ""});
+                if (Favourites(i)) {
+                    m_rows.push_back({kRowFavourites, i, ""});
+                }
             }
         }
         m_rows.push_back({kRowBack, 0, ""});
@@ -236,6 +265,26 @@ Menu::Chosen Menu::Buttons(unsigned pressed) {
     if (row.kind == kRowSpeed && step) {
         const int speeds = static_cast<int>(m_config.speeds.size());
         m_speed = press ? (m_speed + 1) % speeds : std::clamp(m_speed + step, 0, speeds - 1);
+        return {};
+    }
+    if (row.kind == kRowFeature && press && Favourites(row.index)) {
+        // (Confirm on a favourites feature: the choice shown marked a favourite, or no longer; a list of stages may have
+        // no choice that means off, its first a stage too)
+        const int value = m_config.value ? m_config.value(row.index) : 0;
+        m_config.setFavourite(row.index, value, !m_config.favourite(row.index, value));
+        return {};
+    }
+    if (row.kind == kRowFavourites && step) {
+        // (the next favourite that way, around, from the choice shown; none marked: as it is)
+        const int choices = static_cast<int>(m_config.features[row.index].choices.size());
+        const int value = m_config.value ? m_config.value(row.index) : 0;
+        for (int n = 1; n < choices && m_config.setValue; n++) {
+            const int at = ((value + step * n) % choices + choices) % choices;
+            if (m_config.favourite(row.index, at)) {
+                m_config.setValue(row.index, at);
+                break;
+            }
+        }
         return {};
     }
     if (row.kind == kRowFeature && step && (press || !m_config.features[row.index].choices.empty())) {
@@ -299,57 +348,55 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
         return;
     }
     const Canvas canvas{pixels, width, height};
-    // Sizes in font dots: d for the small text, 2d for the rows
-    const float d = static_cast<float>(std::max(height / 300, 1));
-    const float pad = 8 * d;
-    const float panelWidth = std::min(150 * kCharWidth * d / 2, width * 0.9f); // 75 small characters, if there is room
-    const float inner = panelWidth - 2 * pad;
+    // Sizes in font dots: d for the small text, 2d for the rows; as the window's height allows, and no larger than lets
+    // the widest row fit across (a tall, narrow window: a game's picture stood up). Set below, after the rows' words
+    float d = 1, pad = 0, panelWidth = 0, inner = 0;
     // A row's words: its title, its value (and the value's colour) and its description
     const auto Describe = [&](const Row &row, std::string &title, std::string &value, Color &valueColor, std::string &rowDescription) {
-        title = "Resume";
-        rowDescription = "Back to the game.";
+        title = Tr("Resume");
+        rowDescription = Tr("Back to the game.");
         switch (row.kind) {
         case kRowSave:
-            title = "Save state";
-            rowDescription = "Keeps the game as it is now in the slot.";
+            title = Tr("Save state");
+            rowDescription = Tr("Keeps the game as it is now in the slot.");
             break;
         case kRowLoad:
-            title = "Load state";
-            rowDescription = "Goes back to the game kept in the slot.";
+            title = Tr("Load state");
+            rowDescription = Tr("Goes back to the game kept in the slot.");
             break;
         case kRowSlot:
-            title = "Slot";
+            title = Tr("Slot");
             value = std::to_string(m_slot);
-            rowDescription = "Left/Right: the slot (1-9) that Save state and Load state use.";
+            rowDescription = Tr("Left/Right: the slot (1-9) that Save state and Load state use.");
             break;
         case kRowSpeed:
-            title = "Speed";
-            value = m_config.speeds[static_cast<size_t>(m_speed)];
+            title = Tr("Speed");
+            value = Tr(m_config.speeds[static_cast<size_t>(m_speed)]);
             valueColor = m_speed == m_config.normalSpeed ? dim : on;
-            rowDescription = m_config.speedDescription;
+            rowDescription = Tr(m_config.speedDescription);
             break;
         case kRowMute:
-            title = "Mute";
-            value = m_config.muted() ? "On" : "Off";
+            title = Tr("Mute");
+            value = Tr(m_config.muted() ? "On" : "Off");
             valueColor = m_config.muted() ? on : dim;
-            rowDescription = "Switches the game's sound off, and on again.";
+            rowDescription = Tr("Switches the game's sound off, and on again.");
             break;
         case kRowAction:
-            title = m_first[row.index].title;
-            rowDescription = m_first[row.index].description;
+            title = Tr(m_first[row.index].title);
+            rowDescription = Tr(m_first[row.index].description);
             break;
         case kRowQuit:
-            title = "Quit game";
-            rowDescription = "Closes the game.";
+            title = Tr("Quit game");
+            rowDescription = Tr("Closes the game.");
             break;
         case kRowCommand: {
             const MenuCommand &command = m_config.commands[row.index];
-            title = command.title;
-            rowDescription = command.description;
+            title = Tr(command.title);
+            rowDescription = Tr(command.description);
             break;
         }
         case kRowPage: {
-            title = row.page;
+            title = Tr(row.page);
             value = ">";
             valueColor = dim;
             // (what is on the page, and how much of it is on, unless the page is one that does not say)
@@ -361,34 +408,88 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
                 }
             }
             if (onCount) {
-                value = std::to_string(onCount) + " on  >";
+                value = i18n::TrFormat("{} on  >", {std::to_string(onCount)});
                 valueColor = on;
             }
-            rowDescription = page && !page->description.empty() ? page->description : "The page of " + row.page + " choices.";
+            rowDescription = page && !page->description.empty() ? Tr(page->description)
+                                                                 : i18n::TrFormat("The page of {} choices.", {Tr(row.page)});
             break;
         }
         case kRowBack:
-            title = "Back";
-            rowDescription = Parent(m_page).empty() ? "To the first page (Left does the same)." : "To the " + Parent(m_page) + " page (Left does the same).";
+            title = Tr("Back");
+            rowDescription = Parent(m_page).empty() ? Tr("To the first page (Left does the same).")
+                                                    : i18n::TrFormat("To the {} page (Left does the same).", {Tr(Parent(m_page))});
             break;
         case kRowFeature: {
             const MenuFeature &feature = m_config.features[row.index];
             const int chosen = m_config.value ? m_config.value(row.index) : 0;
-            title = feature.title;
-            rowDescription = feature.description;
+            title = Tr(feature.title);
+            rowDescription = Tr(feature.description);
             if (feature.choices.empty()) {
-                value = chosen ? "On" : "Off";
+                value = Tr(chosen ? "On" : "Off");
             } else {
-                value = feature.choices[static_cast<size_t>(std::clamp(chosen, 0, static_cast<int>(feature.choices.size()) - 1))];
+                value = Tr(feature.choices[static_cast<size_t>(std::clamp(chosen, 0, static_cast<int>(feature.choices.size()) - 1))]);
             }
             valueColor = chosen ? on : dim;
+            if (Favourites(row.index)) {
+                if (m_config.favourite(row.index, chosen)) {
+                    value += "  *";
+                }
+                rowDescription += i18n::TrFormat(" ({}: the one shown a favourite, or not.)", {Tr(m_config.confirmName)});
+            }
+            break;
+        }
+        case kRowFavourites: {
+            const MenuFeature &feature = m_config.features[row.index];
+            const int chosen = m_config.value ? m_config.value(row.index) : 0;
+            title = Tr("Favourites"); // (of the row above's)
+            int count = 0;
+            for (int c = 0; c < static_cast<int>(feature.choices.size()); c++) {
+                count += m_config.favourite(row.index, c) ? 1 : 0;
+            }
+            if (!count) {
+                value = Tr("none yet");
+                valueColor = dim;
+            } else if (chosen >= 0 && chosen < static_cast<int>(feature.choices.size()) && m_config.favourite(row.index, chosen)) {
+                value = Tr(feature.choices[static_cast<size_t>(chosen)]);
+                valueColor = on;
+            } else {
+                value = std::to_string(count) + " >";
+                valueColor = dim;
+            }
+            rowDescription = i18n::TrFormat("Left/Right: through your favourites of {} alone. {} on the row above marks the one shown a "
+                                            "favourite, or not.",
+                                            {Tr(feature.title), Tr(m_config.confirmName)});
             break;
         }
         default: break;
         }
     };
+    {
+        // (the widest row at a dot of 1: its title in the rows' letters, the gap, and its value in them or at least in the
+        // small letters, cut to a few characters if it must be: Draw cuts a long value so)
+        float widest = 0;
+        for (const Row &row : m_rows) {
+            std::string title, value, rowDescription;
+            Color valueColor = white;
+            Describe(row, title, value, valueColor, rowDescription);
+            float need = TextWidth(title.c_str(), 2);
+            if (!value.empty()) {
+                need += 6 + std::min(TextWidth(value.c_str(), 2), std::min(TextWidth(value.c_str(), 1), TextWidth("......", 1)));
+            }
+            widest = std::max(widest, need);
+        }
+        const float byHeight = static_cast<float>(std::max(height / 300, 1));
+        const float byWidth = std::floor(width * 0.9f / (widest + 16)); // (16: the panel's padding, 8 dots each side)
+        d = std::max(1.0f, std::min(byHeight, byWidth));
+        pad = 8 * d;
+        panelWidth = std::min(150 * kCharWidth * d / 2, width * 0.9f); // 75 small characters, if there is room
+        inner = panelWidth - 2 * pad;
+    }
     // (the hint is one line unless the picture is a narrow one)
-    const std::string hint = "Up/Down: choose   Left/Right or " + m_config.confirmName + ": change   " + m_config.closeName + ": close";
+    const std::string hint =
+        i18n::TrFormat("Up/Down: choose   Left/Right or {}: change   {}: close", {Tr(m_config.confirmName), Tr(m_config.closeName)});
+    const std::string note = Tr(m_note);
     const int hintLines = TextLines(hint.c_str(), d, inner);
     // (rows closer together when there are many; and when even that does not fit, the rows about the chosen
     // one are shown)
@@ -400,7 +501,7 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
         Describe(row, title, value, valueColor, rowDescription);
         descriptionLines = std::max(descriptionLines, TextLines(rowDescription.c_str(), d, inner));
     }
-    descriptionLines = std::max(descriptionLines, TextLines(m_note.c_str(), d, inner));
+    descriptionLines = std::max(descriptionLines, TextLines(note.c_str(), d, inner));
     const float around = 8 + 16 + 6 + 8 + descriptionLines * kLineHeight + 4 + hintLines * kLineHeight + 8;
     constexpr float kDivider = 9; // (the room a line between groups takes)
     const float dividers = static_cast<float>(std::count_if(m_rows.begin(), m_rows.end(), [](const Row &row) { return row.divider; }));
@@ -416,9 +517,9 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
 
     const float x = px + pad;
     float y = py + pad;
-    canvas.Text(x, y, 2 * d, 0, white, m_page.empty() ? "Menu" : m_page.c_str());
+    canvas.Text(x, y, 2 * d, 0, white, Tr(m_page.empty() ? "Menu" : m_page.c_str()));
     if (shown < m_rows.size()) {
-        const std::string place = std::to_string(m_selected + 1) + " of " + std::to_string(m_rows.size());
+        const std::string place = i18n::TrFormat("{} of {}", {std::to_string(m_selected + 1), std::to_string(m_rows.size())});
         canvas.Text(x + inner - TextWidth(place.c_str(), d), y + 4 * d, d, 0, dim, place.c_str());
     }
     y += 16 * d + 6 * d;
@@ -436,11 +537,13 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
         Color valueColor = white;
         Describe(m_rows[i], title, value, valueColor, rowDescription);
         const float ty = y + (rowHeight - 14 * d) / 2;
-        canvas.Text(x, ty, 2 * d, 0, white, title.c_str());
+        // (a title too long for the panel even at the smallest dot, the window very narrow: in the small letters)
+        const float titleDot = TextWidth(title.c_str(), 2 * d) <= inner ? 2 * d : d;
+        canvas.Text(x, titleDot < 2 * d ? ty + 4 * d : ty, titleDot, 0, white, title.c_str());
         if (!value.empty()) {
             // (a value too long for the room beside the title: in the small letters, and cut short if even
             // those do not fit)
-            const float room = inner - TextWidth(title.c_str(), 2 * d) - 6 * d;
+            const float room = inner - TextWidth(title.c_str(), titleDot) - 6 * d;
             if (TextWidth(value.c_str(), 2 * d) <= room) {
                 canvas.Text(x + inner - TextWidth(value.c_str(), 2 * d), ty, 2 * d, 0, valueColor, value.c_str());
             } else {
@@ -448,6 +551,9 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
                 if (TextWidth(small.c_str(), d) > room) {
                     while (small.size() > 1 && TextWidth((small + "..").c_str(), d) > room) {
                         small.pop_back();
+                        while (small.size() > 1 && (static_cast<unsigned char>(small.back()) & 0xC0) == 0x80) {
+                            small.pop_back(); // (the whole of a character of several bytes)
+                        }
                     }
                     small += "..";
                 }
@@ -459,7 +565,7 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
         }
     }
     y += 8 * d;
-    canvas.Text(x, y, d, inner, m_note.empty() ? dim : white, m_note.empty() ? description.c_str() : m_note.c_str());
+    canvas.Text(x, y, d, inner, note.empty() ? dim : white, note.empty() ? description.c_str() : note.c_str());
     y += descriptionLines * kLineHeight * d + 4 * d;
     canvas.Text(x, y, d, inner, dim, hint.c_str());
 }

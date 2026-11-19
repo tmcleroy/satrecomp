@@ -7,6 +7,7 @@
 #include "png_write.h"
 #include "port.h"
 #include "shading.h"
+#include "touch.h"
 
 #include "../video/gpu.h"
 
@@ -139,6 +140,9 @@ int RunWindowed(Port &port) {
         if (!preset.empty() && !shade) {
             fprintf(stderr, "shader: %s\n", error.c_str());
         }
+#ifdef __ANDROID__
+        flags |= SDL_WINDOW_FULLSCREEN; // (a phone's whole screen, its bars hidden)
+#endif
         flags |= SDL_WINDOW_RESIZABLE | (port.gpu || shade ? SDL_WINDOW_HIGH_PIXEL_DENSITY : 0) | (shade ? SDL_WINDOW_OPENGL : 0) |
                  (testHidden ? SDL_WINDOW_HIDDEN : 0);
         window = SDL_CreateWindow("satrecomp", width, height, flags);
@@ -171,8 +175,12 @@ int RunWindowed(Port &port) {
                 return false;
             }
             // (frames are paced here, to the Saturn's field rate; no waiting for the display on top of that)
+            // (where the display has no presenting at once, as Android's often has not: the newest frame at the next
+            // refresh, never a queue of them)
             if (SDL_WindowSupportsGPUPresentMode(port.gpuDevice, window, SDL_GPU_PRESENTMODE_IMMEDIATE)) {
                 SDL_SetGPUSwapchainParameters(port.gpuDevice, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_IMMEDIATE);
+            } else if (SDL_WindowSupportsGPUPresentMode(port.gpuDevice, window, SDL_GPU_PRESENTMODE_MAILBOX)) {
+                SDL_SetGPUSwapchainParameters(port.gpuDevice, window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_MAILBOX);
             }
             int pixelsWide = 0, pixelsHigh = 0;
             SDL_GetWindowSizeInPixels(window, &pixelsWide, &pixelsHigh);
@@ -256,6 +264,12 @@ int RunWindowed(Port &port) {
     std::vector<uint32_t> frameCopy;
     std::vector<uint32_t> shadedPixels, softwareShown; // (the GPU's picture read back for a shader; the software one)
 
+    // (a touch screen's controls: touch.h; their picture over the whole window, as it was last given)
+    TouchControls touch;
+    std::vector<uint32_t> touchPicture;
+    int touchWidth = 0, touchHeight = 0;
+    SDL_Texture *touchTexture = nullptr; // (the software picture's: the controls over it)
+    bool touchGiven = false;             // (the GPU's or the shader's window has the controls as they are now)
     // The picture shown in an OpenGL window through the preset (`shade` false: the menu, only fitted, smoothly)
     auto showShaded = [&](const uint32_t *pixels, uint32_t width, uint32_t height, bool shade) {
         int wide = 0, high = 0;
@@ -280,6 +294,9 @@ int RunWindowed(Port &port) {
             const SDL_FRect where = satrecomp::video::FitPicture(wide, high, static_cast<float>(texW), static_cast<float>(texH), 4.0f / 3.0f, scaling,
                                                                  satrecomp::FeatureValue("display_shape"));
             SDL_RenderTexture(renderer, texture, nullptr, &where);
+        }
+        if (touchTexture) {
+            SDL_RenderTexture(renderer, touchTexture, nullptr, nullptr);
         }
         SDL_RenderPresent(renderer);
     };
@@ -338,7 +355,56 @@ int RunWindowed(Port &port) {
         note("SPEED " + std::to_string(port.menu.Speed()) + "%");
     };
 
+    // The controls laid out for the window as it is and the picture's place in it, and given to what shows them
+    auto showTouch = [&]() {
+        int wide = 0, high = 0;
+        SDL_FRect where{};
+        if (shaded) {
+            shading.Size(wide, high);
+        } else if (renderer) {
+            SDL_GetCurrentRenderOutputSize(renderer, &wide, &high);
+        } else {
+            SDL_GetWindowSizeInPixels(window, &wide, &high);
+        }
+        if (port.gpu) {
+            where = port.gpu->Fit(wide, high);
+        } else {
+            where = satrecomp::video::FitPicture(wide, high, texW ? static_cast<float>(texW) : 320.0f, texH ? static_cast<float>(texH) : 224.0f,
+                                                 4.0f / 3.0f, satrecomp::FeatureValue("display_scaling"), satrecomp::FeatureValue("display_shape"));
+        }
+        touch.Layout(wide, high, where);
+        if (touch.TakePicture(touchPicture, touchWidth, touchHeight)) {
+            touchGiven = false;
+            if (touchTexture) {
+                SDL_DestroyTexture(touchTexture);
+                touchTexture = nullptr;
+            }
+        }
+        if (!touchGiven) {
+            touchGiven = true;
+            const uint32_t *pixels = touchPicture.empty() ? nullptr : touchPicture.data();
+            if (shaded) {
+                shading.SetOverlay(pixels, touchWidth, touchHeight);
+            } else if (port.gpu) {
+                port.gpu->SetWindowLayer(pixels, static_cast<uint32_t>(touchWidth), static_cast<uint32_t>(touchHeight));
+            }
+        }
+        if (renderer && !shaded && !port.gpu && !touchPicture.empty() && !touchTexture) {
+            touchTexture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, touchWidth, touchHeight);
+            if (touchTexture) {
+                SDL_UpdateTexture(touchTexture, nullptr, touchPicture.data(), touchWidth * static_cast<int>(sizeof(uint32_t)));
+                SDL_SetTextureBlendMode(touchTexture, SDL_BLENDMODE_BLEND_PREMULTIPLIED);
+            }
+        }
+    };
+
     const double kFrameNs = 1e9 / 59.8261; // NTSC Saturn field rate
+#ifdef __ANDROID__
+    const bool speedLog = true;
+#else
+    const bool speedLog = getenv("SATRECOMP_SPEED_LOG") != nullptr;
+#endif
+    uint64_t speedFrom = SDL_GetTicksNS(), speedPass = speedFrom, speedLongest = 0, speedFrame = 0;
     uint64_t nextFrame = SDL_GetTicksNS();
     bool running = true;
     uint64_t pass = 0, loggedFrame = ~0ull;
@@ -371,6 +437,11 @@ int RunWindowed(Port &port) {
                         SDL_DestroyTexture(texture);
                         texture = nullptr;
                     }
+                    if (touchTexture) {
+                        SDL_DestroyTexture(touchTexture);
+                        touchTexture = nullptr;
+                    }
+                    touchGiven = false;
                     closeWindow();
                     preset = wanted;
                     if (!openWindow(wide, high, full)) {
@@ -428,10 +499,16 @@ int RunWindowed(Port &port) {
             }
         }
         while (SDL_PollEvent(&ev)) {
+            if (touch.Event(ev)) {
+                continue; // (a finger's: the touch controls')
+            }
             switch (ev.type) {
             case SDL_EVENT_QUIT: running = false; break;
+            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: touchGiven = false; break; // (the controls laid out again)
             case SDL_EVENT_KEY_DOWN:
-                if ((ev.key.scancode == SDL_SCANCODE_ESCAPE || ev.key.scancode == SDL_SCANCODE_F1) && !ev.key.repeat) {
+                // (a phone's Back opens and closes the menu as Esc does)
+                if ((ev.key.scancode == SDL_SCANCODE_ESCAPE || ev.key.scancode == SDL_SCANCODE_F1 || ev.key.scancode == SDL_SCANCODE_AC_BACK) &&
+                    !ev.key.repeat) {
                     toggleMenu();
                 } else if (ev.key.scancode == SDL_SCANCODE_F5 || ev.key.scancode == SDL_SCANCODE_F9) {
                     // F5 keeps the game in the slot, F9 goes back to it; F6 / F7: the slot before, the next
@@ -499,6 +576,11 @@ int RunWindowed(Port &port) {
             for (size_t i = 0; i < gamepads.size() && i < 2; i++) {
                 pads[i] |= ReadGamepad(gamepads[i], static_cast<int>(i));
             }
+            // (and the touch screen's, player 1's; its Menu button opens and closes the menu)
+            pads[0] |= touch.Read(port.menu.IsOpen());
+            if (touch.TakeMenuPress()) {
+                toggleMenu();
+            }
             // (the buttons themselves, on any gamepad, whatever they do in the game)
             bool both = false, back = false;
             for (SDL_Gamepad *gamepad : gamepads) {
@@ -538,6 +620,7 @@ int RunWindowed(Port &port) {
                 menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH) ? recomp::kMenuConfirm : 0;
                 menuNow |= SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_EAST) ? recomp::kMenuBack : 0;
             }
+            menuNow |= touch.Menu();
             unsigned menuPressed = menuNow & ~previousMenu;
             previousMenu = menuNow;
             if (both) {
@@ -596,6 +679,7 @@ int RunWindowed(Port &port) {
                     SDL_UpdateTexture(texture, nullptr, menuPicture.data(), static_cast<int>(texW * sizeof(uint32_t)));
                 }
             }
+            showTouch();
             if (shaded) {
                 showShaded(menuPicture.data(), menuWidth, menuHeight, false);
             } else if (port.gpu) {
@@ -652,6 +736,7 @@ int RunWindowed(Port &port) {
                 }
             }
             port.UpdateHud(); // (the note may have changed while the game stands still)
+            showTouch();
             if (shaded) {
                 // (the picture at the Saturn's own size, with the readout, read back and drawn through the preset)
                 port.gpu->SizeFor(0, 0);
@@ -662,6 +747,7 @@ int RunWindowed(Port &port) {
                 port.gpu->Present(window);
             }
         } else {
+            showTouch();
             {
                 std::lock_guard lock(port.fbMutex);
                 static uint64_t hudSerial = 0;
@@ -692,6 +778,23 @@ int RunWindowed(Port &port) {
             }
         }
 
+        // (how fast it runs, a line every ten seconds in the log: on Android, where a phone may not keep up, or
+        // with SATRECOMP_SPEED_LOG; the frames run against the Saturn's, and the longest pass)
+        if (speedLog) {
+            const uint64_t now = SDL_GetTicksNS();
+            speedLongest = std::max(speedLongest, now - speedPass);
+            speedPass = now;
+            if (now - speedFrom >= 10'000'000'000ull) {
+                const double seconds = static_cast<double>(now - speedFrom) / 1e9;
+                const double rate = static_cast<double>(port.frame - speedFrame) / seconds;
+                fprintf(stderr, "speed: %.1f frames a second (%.0f%% of the Saturn's), longest pass %.1f ms\n", rate, rate * kFrameNs / 1e7,
+                        static_cast<double>(speedLongest) / 1e6);
+                speedFrom = now;
+                speedFrame = port.frame;
+                speedLongest = 0;
+            }
+        }
+
         if (!port.opt.unthrottled) {
             nextFrame += static_cast<uint64_t>(kFrameNs * 100 / port.menu.Speed());
             const uint64_t now = SDL_GetTicksNS();
@@ -712,6 +815,9 @@ int RunWindowed(Port &port) {
     }
     if (texture) {
         SDL_DestroyTexture(texture);
+    }
+    if (touchTexture) {
+        SDL_DestroyTexture(touchTexture);
     }
     closeWindow();
     return 0;

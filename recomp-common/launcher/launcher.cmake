@@ -16,6 +16,8 @@
 #   LAUNCHER_UPDATE_REPO  owner/name                optional: the launcher updates its own folder from this
 #   LAUNCHER_VERSION      0.5.0                     GitHub repository's releases (src/update.h); the version
 #                                                   alone (no updates: an Android app) is shown and matched online
+#   LAUNCHER_ISSUES_REPO  owner/name                optional: where a player reports a game that stopped (GitHub
+#                                                   issues); LAUNCHER_UPDATE_REPO when not set
 #
 # It makes the target `launcher` (the program <LAUNCHER_GAME_EXE>-launcher), to which the port may add its
 # own definitions, include folders and libraries. SDL3 is the system's or is built in; Dear ImGui and the
@@ -39,17 +41,24 @@ if(NOT SDL3_FOUND)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(sdl3
         URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16.tar.gz
+            https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-3.4.16.tar.gz
         URL_HASH SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68
         DOWNLOAD_EXTRACT_TIMESTAMP ON)
     FetchContent_MakeAvailable(sdl3)
 endif()
 
+# (each download from more than one address, tried in turn: GitHub refuses one now and then, 403, and a build that fails
+# for that is a build lost. codeload.github.com is where github.com's archive address sends; a release's file is tried
+# again at the same address. The hashes keep whatever comes the same file.)
 FetchContent_Declare(imgui
     URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b.tar.gz
+        https://codeload.github.com/ocornut/imgui/tar.gz/refs/tags/v1.92.9b
+        https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b.tar.gz
     URL_HASH SHA256=21d8a0a565e85dce943e375db00812c2f3f0ab21f3f0f7964e364a63422d7f99
     DOWNLOAD_EXTRACT_TIMESTAMP ON)
 FetchContent_Declare(inter
     URL https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip
+        https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip
     URL_HASH SHA256=9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e
     DOWNLOAD_EXTRACT_TIMESTAMP ON)
 FetchContent_MakeAvailable(imgui inter)
@@ -65,14 +74,16 @@ target_include_directories(launcher_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOU
 target_compile_definitions(launcher_imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS IMGUI_DISABLE_OBSOLETE_FUNCTIONS IMGUI_DISABLE_DEMO_WINDOWS IMGUI_DISABLE_DEBUG_TOOLS)
 target_link_libraries(launcher_imgui PUBLIC SDL3::SDL3)
 
-# The fonts, compiled in (blob("font_regular") / blob("font_semibold") for ui.cpp).
+# The fonts, compiled in (blob("font_regular") / blob("font_semibold") for ui.cpp), and the country flags (blob("flags"):
+# flags.cpp).
 set(LAUNCHER_FONTS "${CMAKE_CURRENT_BINARY_DIR}/fonts.cpp")
 add_custom_command(OUTPUT "${LAUNCHER_FONTS}"
     COMMAND "${CMAKE_COMMAND}" -DOUT=${LAUNCHER_FONTS}
             -DREGULAR=${inter_SOURCE_DIR}/extras/ttf/Inter-Regular.ttf
             -DSEMIBOLD=${inter_SOURCE_DIR}/extras/ttf/Inter-SemiBold.ttf
+            -DFLAGS=${RECOMP_LAUNCHER_DIR}/flags.png
             -P "${RECOMP_LAUNCHER_DIR}/embed_fonts.cmake"
-    DEPENDS "${RECOMP_LAUNCHER_DIR}/embed_fonts.cmake"
+    DEPENDS "${RECOMP_LAUNCHER_DIR}/embed_fonts.cmake" "${RECOMP_LAUNCHER_DIR}/flags.png"
     VERBATIM)
 
 # (Android: a library, which the app's activity loads and calls the main of; it starts each game's activity, whose
@@ -84,7 +95,7 @@ else()
 endif()
 target_sources(launcher PRIVATE
     ${RECOMP_LAUNCHER_DIR}/src/main.cpp ${RECOMP_LAUNCHER_DIR}/src/app.cpp ${RECOMP_LAUNCHER_DIR}/src/game_process.cpp
-    ${RECOMP_LAUNCHER_DIR}/src/steam.cpp ${RECOMP_LAUNCHER_DIR}/src/online.cpp ${RECOMP_LAUNCHER_DIR}/src/run_program.cpp ${RECOMP_LAUNCHER_DIR}/src/ui.cpp ${RECOMP_COMMON_SRC}/settings.cpp
+    ${RECOMP_LAUNCHER_DIR}/src/steam.cpp ${RECOMP_LAUNCHER_DIR}/src/online.cpp ${RECOMP_LAUNCHER_DIR}/src/flags.cpp ${RECOMP_LAUNCHER_DIR}/src/run_program.cpp ${RECOMP_LAUNCHER_DIR}/src/ui.cpp ${RECOMP_COMMON_SRC}/settings.cpp
     ${LAUNCHER_PORT_SOURCES} "${LAUNCHER_FONTS}")
 set_target_properties(launcher PROPERTIES OUTPUT_NAME "${LAUNCHER_GAME_EXE}-launcher")
 target_include_directories(launcher PRIVATE ${RECOMP_LAUNCHER_DIR}/src ${RECOMP_COMMON_SRC})
@@ -101,9 +112,17 @@ if(ANDROID)
 endif()
 if(WIN32)
     target_link_libraries(launcher PRIVATE iphlpapi ws2_32) # (online.cpp: this machine's addresses)
+    # (a windowed program: no console window opens beside the launcher when it is opened)
+    set_target_properties(launcher PROPERTIES WIN32_EXECUTABLE ON)
 endif()
 if(LAUNCHER_VERSION)
     target_compile_definitions(launcher PRIVATE LAUNCHER_VERSION="${LAUNCHER_VERSION}")
+endif()
+if(NOT LAUNCHER_ISSUES_REPO AND LAUNCHER_UPDATE_REPO)
+    set(LAUNCHER_ISSUES_REPO ${LAUNCHER_UPDATE_REPO})
+endif()
+if(LAUNCHER_ISSUES_REPO)
+    target_compile_definitions(launcher PRIVATE LAUNCHER_ISSUES_REPO="${LAUNCHER_ISSUES_REPO}")
 endif()
 if(LAUNCHER_UPDATE_REPO)
     target_sources(launcher PRIVATE ${RECOMP_LAUNCHER_DIR}/src/update.cpp)

@@ -46,6 +46,9 @@ ports.
   ([docs/VERIFYING.md](docs/VERIFYING.md)).
 - **macOS, Linux (Steam Deck included) and Windows** through SDL 3. CI builds and starts the
   toolkit on all three.
+- **Android** (ARM64): the game as a library in an app with the shared launcher (`android/`, a game's
+  `tools/release/android.sh`), with touch controls (`port/touch.h`) beside a gamepad's, and the disc
+  chosen with Android's picker.
 
 ## Trying it with no game
 
