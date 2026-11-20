@@ -1358,7 +1358,7 @@ void Port::Shutdown() {
 
 static void Usage(const char *argv0) {
     fprintf(stderr,
-            "Usage: %s --disc GAME.cue [options]\n"
+            "Usage: %s --disc GAME.chd|GAME.cue|GAME.iso [options]\n"
             "  --bios BIOS.bin        start through a Saturn BIOS image instead of the native BIOS\n"
             "  --extra-disc GAME.cue  another disc of the game: files not on --disc are read from it\n"
             "  --soundtrack DIR       a custom soundtrack's folder (its songs.txt names the files; port/soundtrack.h)\n"

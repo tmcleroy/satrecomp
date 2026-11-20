@@ -141,3 +141,12 @@ add_subdirectory("${YMIR_DIR}/libs/ymir-core" ymir-core EXCLUDE_FROM_ALL)
     target_link_libraries(${GAME}-ref PRIVATE ymir::ymir-core SDL3::SDL3 ZLIB::ZLIB)
     target_compile_options(${GAME}-ref PRIVATE -Wno-unused-parameter)
 endif ()
+
+# .chd disc images (port/disc_image.cpp): libchdr, with the system's zlib, which the game links already. (Added
+# after the reference build's emulator, which may bring its own copy: then that one is used.)
+set(CHDR_USE_SYSTEM_ZLIB ON)
+include(port/libchdr.cmake)
+target_link_libraries(${GAME} PRIVATE chdr-static)
+if (TARGET ${GAME}-ref)
+    target_link_libraries(${GAME}-ref PRIVATE chdr-static)
+endif ()
