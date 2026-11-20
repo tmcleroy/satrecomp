@@ -224,7 +224,7 @@ int Soundtrack::Open(const std::string &folder) {
     };
     m_volume = ini[""].count("volume") ? std::clamp(atoi(ini[""]["volume"].c_str()), 0, 400) : 100;
     const std::string commonDisc = ini[""].count("disc") ? inFolder(ini[""]["disc"]) : "";
-    // Discs the game knows the music of (Game::songDiscs), by their product numbers: each disc image (.cue) in the
+    // Discs the game knows the music of (Game::songDiscs), by their product numbers: each disc image (.cue, .chd) in the
     // folder or a folder in it, and soundtrack.ini's disc
     std::map<int, std::pair<std::string, int>> known; // this game's track: a disc, and its track
     std::vector<std::string> cues;
@@ -237,7 +237,7 @@ int Soundtrack::Open(const std::string &folder) {
         if (each.depth() > 1) {
             each.disable_recursion_pending();
         }
-        if (Lower(PathText(each->path().extension())) == ".cue") {
+        if (const std::string ext = Lower(PathText(each->path().extension())); ext == ".cue" || ext == ".chd") {
             cues.push_back(PathText(each->path()));
         }
     }
@@ -353,7 +353,7 @@ std::string Soundtrack::Status() const {
                        "or .wav: for instance " +
                        std::string(game.songs.empty() ? "selector" : game.songs[game.songs.size() * 3 / 4].name) + ".flac.\n";
     if (!game.songDiscs.empty()) {
-        text += "\nTo take music from another game's disc, put its disc image here: the .cue file with its .bin files, or\n"
+        text += "\nTo take music from another game's disc, put its disc image here: its .chd, or the .cue file with its .bin files, or\n"
                 "the folder they are in. The game knows these discs' music:\n";
         std::vector<std::string> said;
         for (const satrecomp::SongDisc &disc : game.songDiscs) {

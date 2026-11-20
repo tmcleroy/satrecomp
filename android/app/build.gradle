@@ -63,7 +63,7 @@ android {
     }
     androidResources {
         // (a development build's disc, assets/disc/: stored as it is, not packed again)
-        noCompress += ['bin', 'cue', 'iso']
+        noCompress += ['bin', 'cue', 'iso', 'chd']
     }
     packagingOptions {
         jniLibs {

@@ -69,3 +69,9 @@ target_compile_definitions(launcher PRIVATE
     LAUNCHER_DISC_NAME="${DISC_NAME}" LAUNCHER_DISC_PRODUCT="${DISC_PRODUCT}" LAUNCHER_DISC_VERSION="${DISC_VERSION}"
     "SATRECOMP_COMBOS=\"${GAME_COMBOS}\""
     "LAUNCHER_EXTRA_DISC_PRODUCT=\"${GAME_EXTRA_DISC_PRODUCT}\"" "LAUNCHER_EXTRA_DISC_NAME=\"${GAME_EXTRA_DISC_NAME}\"")
+# (the disc check reads the disc image as the game does, .chd too: port/disc_image.cpp, with libchdr)
+target_sources(launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../port/disc_image.cpp)
+target_include_directories(launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../port)
+set(CHDR_USE_SYSTEM_ZLIB OFF)
+include(${CMAKE_CURRENT_SOURCE_DIR}/../port/libchdr.cmake)
+target_link_libraries(launcher PRIVATE chdr-static)

@@ -67,7 +67,7 @@ public class LauncherActivity extends SDLActivity {
             roms.mkdirs();
             String cue = null;
             for (String name : files) {
-                if (name.toLowerCase().endsWith(".cue") || name.toLowerCase().endsWith(".iso")) {
+                if (name.toLowerCase().endsWith(".cue") || name.toLowerCase().endsWith(".iso") || name.toLowerCase().endsWith(".chd")) {
                     cue = new File(roms, name).getPath();
                 }
                 if (new File(roms, name).exists()) {

@@ -2,12 +2,67 @@
 // Copyright (C) 2026 Tommy McLeroy. Part of satrecomp: https://github.com/tmcleroy/satrecomp
 #include "disc_image.h"
 
+#include <libchdr/chd.h>
+
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 
 namespace port {
+
+// A .chd: CD frames of 2448 bytes (a sector's 2352, then 96 of subcode), several to a hunk, the hunk the unit
+// it is compressed and read in. Each track's frames start at a multiple of 4 frames. A sector is kept as the
+// track's kind gives it (2048 bytes of user data, or all 2352), at its frame's start; audio's samples
+// big-endian. The few hunks last read are kept, for the sector after and for the CD's data and its music
+// read in turns (they may be read from two threads: so a lock).
+struct DiscImage::Chd {
+    static constexpr uint32_t kFrameBytes = 2448;
+    static constexpr int kHunksKept = 4;
+    chd_file *file = nullptr;
+    uint32_t hunkBytes = 0;
+    uint32_t framesPerHunk = 0;
+    uint32_t hunks = 0;
+    struct Kept {
+        uint32_t hunk = UINT32_MAX;
+        uint64_t used = 0;
+        std::vector<uint8_t> data;
+    };
+    std::array<Kept, kHunksKept> kept;
+    uint64_t reads = 0;
+    std::mutex lock;
+
+    ~Chd() {
+        if (file) {
+            chd_close(file);
+        }
+    }
+    // A hunk's bytes (null: it cannot be read). Called with the lock held.
+    const uint8_t *Hunk(uint32_t hunk) {
+        Kept *oldest = &kept[0];
+        for (Kept &k : kept) {
+            if (k.hunk == hunk) {
+                k.used = ++reads;
+                return k.data.data();
+            }
+            if (k.used < oldest->used) {
+                oldest = &k;
+            }
+        }
+        oldest->data.resize(hunkBytes);
+        oldest->hunk = UINT32_MAX;
+        if (hunk >= hunks || chd_read(file, hunk, oldest->data.data()) != CHDERR_NONE) {
+            return nullptr;
+        }
+        oldest->hunk = hunk;
+        oldest->used = ++reads;
+        return oldest->data.data();
+    }
+};
+
+DiscImage::DiscImage() = default;
 
 DiscImage::~DiscImage() {
     for (FILE *f : m_files) {
@@ -15,6 +70,87 @@ DiscImage::~DiscImage() {
             fclose(f);
         }
     }
+}
+
+// A .chd's tracks, from its metadata (one entry a track, as chdman writes them):
+//   TRACK:1 TYPE:MODE1_RAW SUBTYPE:NONE FRAMES:12345 PREGAP:0 PGTYPE:MODE1 PGSUB:NONE POSTGAP:0
+// FRAMES counts the frames the file holds of the track: its pregap too when PGTYPE begins with V (the pregap's
+// sectors were in the dump), not when the pregap was only said (silence the file does not hold). Older files
+// say only TRACK, TYPE, SUBTYPE and FRAMES.
+bool DiscImage::OpenChd(const std::string &path) {
+    auto chd = std::make_unique<Chd>();
+    if (chd_open(path.c_str(), CHD_OPEN_READ, nullptr, &chd->file) != CHDERR_NONE) {
+        chd->file = nullptr;
+        return false;
+    }
+    const chd_header *header = chd_get_header(chd->file);
+    chd->hunkBytes = header->hunkbytes;
+    chd->hunks = header->totalhunks;
+    chd->framesPerHunk = header->hunkbytes / Chd::kFrameBytes;
+    if (chd->framesPerHunk == 0 || header->hunkbytes % Chd::kFrameBytes != 0) {
+        return false; // not a CD's
+    }
+    uint64_t frame = 0;    // in the file
+    int64_t position = 0;  // on the disc, from the first track's start (its pregap's, if it has one)
+    for (uint32_t index = 0;; index++) {
+        char text[256] = {};
+        uint32_t length = 0;
+        if (chd_get_metadata(chd->file, CDROM_TRACK_METADATA2_TAG, index, text, sizeof text - 1, &length, nullptr, nullptr) !=
+                CHDERR_NONE &&
+            chd_get_metadata(chd->file, CDROM_TRACK_METADATA_TAG, index, text, sizeof text - 1, &length, nullptr, nullptr) !=
+                CHDERR_NONE) {
+            break;
+        }
+        text[std::min<uint32_t>(length, sizeof text - 1)] = 0;
+        int number = 0, frames = 0, pregap = 0, postgap = 0;
+        char type[32] = {}, subtype[32] = {}, pregapType[32] = {}, pregapSub[32] = {};
+        const int got = sscanf(text, "TRACK:%d TYPE:%31s SUBTYPE:%31s FRAMES:%d PREGAP:%d PGTYPE:%31s PGSUB:%31s POSTGAP:%d",
+                               &number, type, subtype, &frames, &pregap, pregapType, pregapSub, &postgap);
+        if (got < 4 || frames <= 0 || pregap < 0 || postgap < 0) {
+            return false;
+        }
+        const bool pregapHeld = got >= 6 && pregapType[0] == 'V';
+        const std::string kind = type;
+        Track track;
+        track.number = number;
+        track.audio = kind == "AUDIO";
+        if (kind == "MODE1" || kind == "MODE1/2048" || kind == "MODE2_FORM1" || kind == "MODE2/2048") {
+            track.sectorSize = 2048;
+            track.userOffset = 0;
+        } else if (kind == "MODE1_RAW" || kind == "MODE1/2352" || kind == "AUDIO") {
+            track.sectorSize = 2352;
+            track.userOffset = 16;
+        } else if (kind == "MODE2_RAW" || kind == "MODE2/2352" || kind == "CDI/2352") {
+            track.sectorSize = 2352;
+            track.userOffset = 24;
+        } else if (kind == "MODE2" || kind == "MODE2/2336" || kind == "MODE2_FORM_MIX") {
+            track.sectorSize = 2336;
+            track.userOffset = 8;
+        } else {
+            return false;
+        }
+        const uint32_t held = pregapHeld ? static_cast<uint32_t>(std::min(pregap, frames)) : 0;
+        track.file = 0;
+        track.fileOffset = frame + held;
+        track.startFAD = static_cast<uint32_t>(position + pregap); // (made right below, once the first is known)
+        track.endFAD = track.startFAD + static_cast<uint32_t>(frames) - held - 1;
+        m_tracks.push_back(track);
+        frame += (static_cast<uint64_t>(frames) + 3) / 4 * 4;
+        position += (pregapHeld ? frames : pregap + frames) + postgap;
+    }
+    if (m_tracks.empty() || frame > static_cast<uint64_t>(chd->hunks) * chd->framesPerHunk) {
+        m_tracks.clear();
+        return false;
+    }
+    // (the first track's start is the disc's frame address 150, as in a cue sheet)
+    const uint32_t first = m_tracks.front().startFAD;
+    for (Track &track : m_tracks) {
+        track.startFAD = track.startFAD - first + 150;
+        track.endFAD = track.endFAD - first + 150;
+    }
+    m_leadOut = static_cast<uint32_t>(position) - first + 150;
+    m_chd = std::move(chd);
+    return true;
 }
 
 bool DiscImage::Open(const std::string &path) {
@@ -35,6 +171,9 @@ bool DiscImage::Open(const std::string &path) {
         return static_cast<int>(m_files.size()) - 1;
     };
 
+    if (extension == ".chd") {
+        return OpenChd(path);
+    }
     if (extension != ".cue") {
         // A single file: a data track's user data (.iso), or raw sectors
         uint64_t size = 0;
@@ -139,19 +278,41 @@ bool DiscImage::Open(const std::string &path) {
     return true;
 }
 
-bool DiscImage::ReadRaw(const Track &track, uint32_t sector, uint8_t *out) const {
+bool DiscImage::Read(const Track &track, uint32_t sector, uint32_t offset, uint32_t length, uint8_t *out) const {
     if (track.file < 0 || track.startFAD + sector > track.endFAD) {
         return false;
     }
+    if (m_chd) {
+        Chd &chd = *m_chd;
+        const uint64_t frame = track.fileOffset + sector;
+        std::lock_guard<std::mutex> hold(chd.lock);
+        const uint8_t *hunk = chd.Hunk(static_cast<uint32_t>(frame / chd.framesPerHunk));
+        if (!hunk) {
+            return false;
+        }
+        const uint8_t *at = hunk + (frame % chd.framesPerHunk) * Chd::kFrameBytes + offset;
+        if (track.audio) {
+            for (uint32_t i = 0; i + 1 < length; i += 2) { // (to the little-endian samples a .bin holds)
+                out[i] = at[i + 1];
+                out[i + 1] = at[i];
+            }
+        } else {
+            memcpy(out, at, length);
+        }
+        return true;
+    }
     FILE *f = m_files[static_cast<size_t>(track.file)];
-    if (fseeko(f, static_cast<off_t>(track.fileOffset + static_cast<uint64_t>(sector) * track.sectorSize), SEEK_SET) != 0) {
-        return false;
-    }
+    const uint64_t at = track.fileOffset + static_cast<uint64_t>(sector) * track.sectorSize + offset;
+    return fseeko(f, static_cast<off_t>(at), SEEK_SET) == 0 && fread(out, 1, length, f) == length;
+}
+
+bool DiscImage::ReadRaw(const Track &track, uint32_t sector, uint8_t *out) const {
     if (track.sectorSize == 2352) {
-        return fread(out, 1, 2352, f) == 2352;
+        return Read(track, sector, 0, 2352, out);
     }
+    // (a sector kept without its sync and header, 16 bytes: they are left zero, as is what it was kept without)
     memset(out, 0, 2352);
-    return fread(out + 16, 1, 2048, f) == 2048;
+    return Read(track, sector, 0, track.sectorSize, out + 16);
 }
 
 bool DiscImage::ReadUserData(uint32_t fad, uint8_t *out) const {
@@ -159,9 +320,7 @@ bool DiscImage::ReadUserData(uint32_t fad, uint8_t *out) const {
         if (track.audio || fad < track.startFAD || fad > track.endFAD) {
             continue;
         }
-        FILE *f = m_files[static_cast<size_t>(track.file)];
-        const uint64_t at = track.fileOffset + static_cast<uint64_t>(fad - track.startFAD) * track.sectorSize + track.userOffset;
-        return fseeko(f, static_cast<off_t>(at), SEEK_SET) == 0 && fread(out, 1, 2048, f) == 2048;
+        return Read(track, fad - track.startFAD, track.userOffset, 2048, out);
     }
     return false;
 }

@@ -27,7 +27,7 @@
 // or LOOPLENGTH, in samples). A song longer than the disc's track plays on to its end after the track would have
 // stopped, unless the game asks for other music first.
 //
-// Another game's disc the game knows (Game::songDiscs) needs no soundtrack.ini: its disc image (a .cue, in the folder or
+// Another game's disc the game knows (Game::songDiscs) needs no soundtrack.ini: its disc image (a .cue or .chd, in the folder or
 // a folder in it) is found by its product number, and plays for the songs it has. songs.txt, written at every start,
 // says how to give the game music, which discs were found, and what plays for each song.
 //
