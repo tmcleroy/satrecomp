@@ -24,7 +24,7 @@ check "no game but the stand-in" "$(grep -E '(^|/)games/' "$LIST" | grep -v '^ex
 check "no pictures, sound or video" "$(grep -iE '\.(png|jpe?g|gif|bmp|ppm|webp|mp4|mov|webm|wav|ogg|mp3|flac)$' "$LIST" | grep -vx 'recomp-common/launcher/flags\.png' || true)"
 # (the published checksums of the libraries the builds download, the commits they are pinned to, and the hashes of
 # the copied files, are not keys)
-check "no key-like hex strings (32 digits or more)" "$(grep_files '(^|[^0-9a-fA-F.])[0-9a-fA-F]{32,}([^0-9a-fA-F]|$)' | grep -vE 'YMIR_COMMIT|_COMMIT=[0-9a-f]{40}$|URL_HASH SHA256=[0-9a-f]{64}|SHA256=[0-9a-f]{64}|= [0-9a-f]{64} \]|^recomp-common/COMMIT:|^\.github/workflows/' || true)"
+check "no key-like hex strings (32 digits or more)" "$(grep_files '(^|[^0-9a-fA-F.])[0-9a-fA-F]{32,}([^0-9a-fA-F]|$)' | grep -vE 'YMIR_COMMIT|_COMMIT=[0-9a-f]{40}$|URL_HASH SHA256=[0-9a-f]{64}|/archive/[0-9a-f]{40}\.tar\.gz|SHA256=[0-9a-f]{64}|= [0-9a-f]{64} \]|^recomp-common/COMMIT:|^\.github/workflows/' || true)"
 check "no home folder paths" "$(grep_files -e '/Users/[a-z]' -e '/home/[a-z]+/' -e 'C:\\\\Users\\\\[a-z]' || true)"
 check "no private session links or private network addresses" "$(grep_files -e 'claude\.ai/code/session' -e '\b192\.168\.[0-9]+\.[0-9]+' -e '\b10\.[0-9]+\.[0-9]+\.[0-9]+\b' || true)"
 # (the sound file decoders in port/decoders/ are kept as their projects publish them: dr_flac is a little over)
