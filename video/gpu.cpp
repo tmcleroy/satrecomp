@@ -111,6 +111,7 @@ bool Gpu::Init(SDL_GPUDevice *device) {
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_clip = true; // (no depth clamping: CreateDevice)
         info.target_info.color_target_descriptions = &target;
         info.target_info.num_color_targets = 1;
         m_hudPipeline = SDL_CreateGPUGraphicsPipeline(m_device, &info);
@@ -147,6 +148,7 @@ bool Gpu::Init(SDL_GPUDevice *device) {
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_clip = true; // (no depth clamping: CreateDevice)
         info.target_info.color_target_descriptions = &target;
         info.target_info.num_color_targets = 1;
         m_quadPipeline = SDL_CreateGPUGraphicsPipeline(m_device, &info);
@@ -160,6 +162,7 @@ bool Gpu::Init(SDL_GPUDevice *device) {
         info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
         info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_clip = true; // (no depth clamping: CreateDevice)
         info.target_info.color_target_descriptions = &target;
         info.target_info.num_color_targets = 1;
         m_composePipeline = SDL_CreateGPUGraphicsPipeline(m_device, &info);
@@ -210,6 +213,11 @@ void Gpu::Shutdown() {
     Release(m_output);
     Release(m_hud);
     Release(m_plain);
+    Release(m_windowLayer);
+    if (m_windowLayerPipeline) {
+        SDL_ReleaseGPUGraphicsPipeline(m_device, m_windowLayerPipeline);
+        m_windowLayerPipeline = nullptr;
+    }
     if (m_hudPipeline) {
         SDL_ReleaseGPUGraphicsPipeline(m_device, m_hudPipeline);
         m_hudPipeline = nullptr;
@@ -770,9 +778,131 @@ void Gpu::ApplyHud() {
     SDL_SubmitGPUCommandBuffer(cmd);
 }
 
+bool Gpu::Upload(SDL_GPUTexture *&texture, uint32_t &textureWidth, uint32_t &textureHeight, const uint32_t *pixels, uint32_t width,
+                 uint32_t height) {
+    if (!texture || width != textureWidth || height != textureHeight) {
+        Release(texture);
+        texture = Texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, width, height, false);
+        textureWidth = width;
+        textureHeight = height;
+        if (!texture) {
+            return false;
+        }
+    }
+    const uint32_t size = width * height * 4;
+    SDL_GPUTransferBufferCreateInfo info{};
+    info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+    info.size = size;
+    SDL_GPUTransferBuffer *transfer = SDL_CreateGPUTransferBuffer(m_device, &info);
+    if (!transfer) {
+        return false;
+    }
+    bool done = false;
+    if (void *bytes = SDL_MapGPUTransferBuffer(m_device, transfer, false)) {
+        memcpy(bytes, pixels, size);
+        SDL_UnmapGPUTransferBuffer(m_device, transfer);
+        SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(m_device);
+        SDL_GPUCopyPass *pass = SDL_BeginGPUCopyPass(cmd);
+        SDL_GPUTextureTransferInfo source{};
+        source.transfer_buffer = transfer;
+        source.pixels_per_row = width;
+        source.rows_per_layer = height;
+        SDL_GPUTextureRegion region{};
+        region.texture = texture;
+        region.w = width;
+        region.h = height;
+        region.d = 1;
+        SDL_UploadToGPUTexture(pass, &source, &region, false);
+        SDL_EndGPUCopyPass(pass);
+        SDL_SubmitGPUCommandBuffer(cmd);
+        done = true;
+    }
+    SDL_ReleaseGPUTransferBuffer(m_device, transfer);
+    return done;
+}
+
+void Gpu::SetWindowLayer(const uint32_t *pixels, uint32_t width, uint32_t height) {
+    m_windowLayerShown = m_device && pixels && width && height &&
+                         Upload(m_windowLayer, m_windowLayerWidth, m_windowLayerHeight, pixels, width, height);
+}
+
+void Gpu::DrawWindowLayer(SDL_GPUCommandBuffer *cmd, SDL_Window *window, SDL_GPUTexture *swapchain) {
+    if (!m_windowLayerShown || !m_windowLayer || !m_linear) {
+        return;
+    }
+    const SDL_GPUTextureFormat format = SDL_GetGPUSwapchainTextureFormat(m_device, window);
+    if (!m_windowLayerPipeline || format != m_windowLayerFormat) {
+        if (m_windowLayerPipeline) {
+            SDL_ReleaseGPUGraphicsPipeline(m_device, m_windowLayerPipeline);
+            m_windowLayerPipeline = nullptr;
+        }
+        m_windowLayerFormat = format;
+        SDL_GPUShader *vertex = SATRECOMP_SHADER(SDL_GPU_SHADERSTAGE_VERTEX, screen_vert, 0, 0);
+        SDL_GPUShader *fragment = SATRECOMP_SHADER(SDL_GPU_SHADERSTAGE_FRAGMENT, hud_frag, 1, 0);
+        if (vertex && fragment) {
+            // (premultiplied: the layer's colour as it is, over what is left of the window's)
+            SDL_GPUColorTargetDescription target{};
+            target.format = format;
+            target.blend_state.enable_blend = true;
+            target.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+            target.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+            target.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+            target.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+            target.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+            target.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+            SDL_GPUGraphicsPipelineCreateInfo info{};
+            info.vertex_shader = vertex;
+            info.fragment_shader = fragment;
+            info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+            info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+            info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        info.rasterizer_state.enable_depth_clip = true; // (no depth clamping: CreateDevice)
+            info.target_info.color_target_descriptions = &target;
+            info.target_info.num_color_targets = 1;
+            m_windowLayerPipeline = SDL_CreateGPUGraphicsPipeline(m_device, &info);
+            if (!m_windowLayerPipeline) {
+                fprintf(stderr, "video: window layer: %s\n", SDL_GetError());
+            }
+        }
+        if (vertex) {
+            SDL_ReleaseGPUShader(m_device, vertex);
+        }
+        if (fragment) {
+            SDL_ReleaseGPUShader(m_device, fragment);
+        }
+    }
+    if (!m_windowLayerPipeline) {
+        return;
+    }
+    SDL_GPUColorTargetInfo target{};
+    target.texture = swapchain;
+    target.load_op = SDL_GPU_LOADOP_LOAD;
+    target.store_op = SDL_GPU_STOREOP_STORE;
+    SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(cmd, &target, 1, nullptr);
+    SDL_BindGPUGraphicsPipeline(pass, m_windowLayerPipeline);
+    const SDL_GPUTextureSamplerBinding sampler{m_windowLayer, m_linear};
+    SDL_BindGPUFragmentSamplers(pass, 0, &sampler, 1);
+    SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(pass);
+}
+
 bool Gpu::ReadShown(std::vector<uint32_t> &pixels) {
     ApplyHud();
     return Read(pixels);
+}
+
+SDL_GPUDevice *CreateDevice(bool debug) {
+    const SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_MSL_BOOLEAN, true);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, debug);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN, false);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_DEPTH_CLAMPING_BOOLEAN, false);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN, false);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_ANISOTROPY_BOOLEAN, false);
+    SDL_GPUDevice *device = SDL_CreateGPUDeviceWithProperties(props);
+    SDL_DestroyProperties(props);
+    return device;
 }
 
 SDL_FRect FitPicture(int width, int height, float columns, float lines, float aspect, int scaling, int shape) {
@@ -855,6 +985,7 @@ void Gpu::Present(SDL_Window *window) {
         blit.filter = SDL_GPU_FILTER_LINEAR;
         SDL_BlitGPUTexture(cmd, &blit);
     }
+    DrawWindowLayer(cmd, window, swapchain);
     SDL_SubmitGPUCommandBuffer(cmd);
 }
 

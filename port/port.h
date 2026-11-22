@@ -192,4 +192,9 @@ void VideoStatsReport();
 // Windowed frontend (SDL3). Returns the process exit code.
 int RunWindowed(Port &port);
 
+#ifdef __ANDROID__
+// Android (port/android.cpp): the game's folder and log, which its activity says, before anything else
+void StartOnAndroid();
+#endif
+
 } // namespace port

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Tommy McLeroy. Part of satrecomp: https://github.com/tmcleroy/satrecomp
-// A CD image as dumped: a cue sheet naming one or more files of raw sectors (or a single .iso file of a
-// data track's user data). Gives the tracks, where they are on the disc, and their sectors.
+// A CD image as dumped: a cue sheet naming one or more files of raw sectors, a single .iso file of a data
+// track's user data, or a .chd (MAME's compressed disc image: every track, audio too, in one file, read with
+// libchdr). Gives the tracks, where they are on the disc, and their sectors.
 #pragma once
 
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -21,9 +23,10 @@ public:
         uint32_t sectorSize = 2352; // bytes a sector takes in the file
         uint32_t userOffset = 16; // where a data sector's 2048 bytes of user data start
         int file = -1;
-        uint64_t fileOffset = 0;  // of the sector at startFAD
+        uint64_t fileOffset = 0;  // of the sector at startFAD (a .chd: the number of its frame there)
     };
 
+    DiscImage();
     ~DiscImage();
     bool Open(const std::string &path);
     const std::vector<Track> &Tracks() const {
@@ -39,8 +42,14 @@ public:
     bool ReadRaw(const Track &track, uint32_t sector, uint8_t *out) const;
 
 private:
+    struct Chd; // an open .chd and the hunks last read from it
+    bool OpenChd(const std::string &path);
+    // `length` bytes at `offset` in a track's sector (its number within the track), as the file holds them
+    bool Read(const Track &track, uint32_t sector, uint32_t offset, uint32_t length, uint8_t *out) const;
+
     std::vector<Track> m_tracks;
     std::vector<FILE *> m_files;
+    std::unique_ptr<Chd> m_chd;
     uint32_t m_leadOut = 150;
 };
 

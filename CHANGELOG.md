@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The in-game menu as the other ports have it (recomp-common 3e92f21, `menu_layout.h` and `menu_sdl.h`): the
+- The in-game menu as the other ports have it (recomp-common 989f983, `menu_layout.h` and `menu_sdl.h`): the
   standard first page (Display, Game; Alternative modes; the save states; the reset point's rows; Reset all
   options, Reset game, Quit game, Resume), Speed and Mute on the Game page, Cheats and Sound under it. Reset all
   options (`ResetFeatures`): every feature as the Enhanced preset has it, and full speed. The speeds are the other
@@ -10,6 +10,10 @@
   alone no longer does (Start and Back together still do); held arrows repeat; the mouse works the menu. Hotkeys: P
   pauses (F4 still does), O steps a frame (F8 still does; O is the free camera's while that is on: `Game::lookOn`),
   F12 saves a screenshot. The shader choices are named "Scanlines: light" and so on.
+- `.chd` disc images (MAME's compressed format: every track, the music's too, in one file), read with libchdr
+  (`port/libchdr.cmake`, downloaded at its pinned commit and hash), by the game, the launcher's disc check, the
+  custom soundtrack's other discs and the Android app. An `.iso` holds only the data track, so a game whose music is
+  CD audio played none from one; a `.chd` keeps it in a single file.
 - The launcher's Custom soundtrack row only for a game that has the feature: game.cfg's `custom_soundtrack = yes`
   (a game whose sources name its songs, `Game::songs`). Fighting Vipers, which has none, showed the row for nothing.
 - A custom soundtrack (`port/soundtrack.h`, feature `custom_soundtrack`): the player's own music, or tracks of

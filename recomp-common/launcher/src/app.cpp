@@ -1229,11 +1229,45 @@ std::filesystem::path imported_folder() {
 void App::choose_game_file(size_t which) {
 #ifdef __ANDROID__
     picked_for_ = which;
-    std::thread([this] {
-        std::vector<std::string> paths = import_files(imported_folder(), false);
+    const launcher::Description* about = slots_[which]->about;
+    const bool many = about->file_many;
+    const std::string pattern = about->file_filter.pattern ? about->file_filter.pattern : "*";
+    std::thread([this, about, many, pattern] {
+        std::vector<std::string> paths = import_files(imported_folder(), many);
         if (!paths.empty()) {
+            // (of several, one the filter names: a disc's .cue among its tracks; the first its check finds good, where
+            // two discs' files were chosen at once)
+            std::string chosen = paths.front();
+            if (many && pattern != "*") {
+                std::vector<std::string> named_paths;
+                for (const std::string& path : paths) {
+                    std::string ext = std::filesystem::u8path(path).extension().u8string();
+                    if (!ext.empty()) {
+                        ext.erase(0, 1);
+                    }
+                    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    bool named = false;
+                    for (size_t at = 0; at <= pattern.size();) {
+                        const size_t end = std::min(pattern.find(';', at), pattern.size());
+                        named = named || (!ext.empty() && pattern.compare(at, end - at, ext) == 0);
+                        at = end + 1;
+                    }
+                    if (named) {
+                        named_paths.push_back(path);
+                    }
+                }
+                if (!named_paths.empty()) {
+                    chosen = named_paths.front();
+                }
+                for (const std::string& path : named_paths) {
+                    if (about->check && about->check(path).result == launcher::FileCheck::Result::Good) {
+                        chosen = path;
+                        break;
+                    }
+                }
+            }
             std::lock_guard<std::mutex> lock(mutex_);
-            picked_ = paths.front();
+            picked_ = chosen;
             picked_folder_ = false;
         }
         wake();

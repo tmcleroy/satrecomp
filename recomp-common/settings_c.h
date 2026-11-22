@@ -38,6 +38,10 @@ void rsettings_feature_values(const char* path, const RFeature* features, int co
 // False if the file could not be written.
 bool rsettings_set_feature(const char* path, const RFeature* features, int count, int index, int value);
 
+// Chooses a preset ("pure", "enhanced" or "custom"; see SetPreset in settings.h): "pure" and "enhanced" take every
+// feature's own value out of the file, so each follows the preset again. False if the file could not be written.
+bool rsettings_set_preset(const char* path, const RFeature* features, int count, const char* preset);
+
 // A key's value in the file, into buffer[size]; false (and "") when it is not there
 bool rsettings_get(const char* path, const char* section, const char* key, char* buffer, int size);
 

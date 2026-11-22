@@ -24,6 +24,10 @@
 
 #include "game_info.h" // generated from games/<id>/game.cfg
 
+#ifdef __ANDROID__
+#include <SDL3/SDL_main.h> // (the game is a library whose SDL_main its activity calls: port/android.cpp)
+#endif
+
 #include <algorithm>
 #include <cstdlib>
 #include <map>
@@ -387,7 +391,7 @@ bool Port::Init() {
                 fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
                 return false;
             }
-            gpuDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, getenv("SATRECOMP_GPU_DEBUG") != nullptr, nullptr);
+            gpuDevice = satrecomp::video::CreateDevice(getenv("SATRECOMP_GPU_DEBUG") != nullptr);
             gpu = new satrecomp::video::Gpu;
             if (!gpuDevice || !gpu->Init(gpuDevice)) {
                 fprintf(stderr, "No GPU renderer (%s): drawing in software\n", SDL_GetError());
@@ -603,7 +607,7 @@ bool Port::Init() {
             fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
             return false;
         }
-        gpuDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, getenv("SATRECOMP_GPU_DEBUG") != nullptr, nullptr);
+        gpuDevice = satrecomp::video::CreateDevice(getenv("SATRECOMP_GPU_DEBUG") != nullptr);
         gpu = new satrecomp::video::Gpu;
         if (!gpuDevice || !gpu->Init(gpuDevice)) {
             fprintf(stderr, "No GPU renderer (%s): drawing in software\n", SDL_GetError());
@@ -1393,7 +1397,7 @@ void Port::Shutdown() {
 
 static void Usage(const char *argv0) {
     fprintf(stderr,
-            "Usage: %s --disc GAME.cue [options]\n"
+            "Usage: %s --disc GAME.chd|GAME.cue|GAME.iso [options]\n"
             "  --bios BIOS.bin        start through a Saturn BIOS image instead of the native BIOS\n"
             "  --extra-disc GAME.cue  another disc of the game: files not on --disc are read from it\n"
             "  --soundtrack DIR       a custom soundtrack's folder (its songs.txt names the files; port/soundtrack.h)\n"
@@ -1429,7 +1433,28 @@ static void Usage(const char *argv0) {
             argv0);
 }
 
+// For the launcher: one optional feature per line (recomp-common/settings.h), but those whose switch is on the
+// launcher's first page (game.h, kFeatureFirstPage)
+static std::string LauncherFeatureList() {
+    satrecomp::RegisterGame();
+    port::RegisterPortFeatures();
+    std::vector<recomp::FeatureInfo> list = satrecomp::FeatureList();
+    list.erase(std::remove_if(list.begin(), list.end(), [](const recomp::FeatureInfo &f) { return f.flags & satrecomp::kFeatureFirstPage; }), list.end());
+    return recomp::FeatureListText(list);
+}
+
+#ifdef __ANDROID__
+// For the launcher, which has no game program to run with --list-features there: it opens the game's library and
+// asks it (recomp-common/launcher/src/game_process.cpp). The text is the caller's to free.
+extern "C" __attribute__((visibility("default"))) char *RecompListFeatures() {
+    return strdup(LauncherFeatureList().c_str());
+}
+#endif
+
 int main(int argc, char **argv) {
+#ifdef __ANDROID__
+    port::StartOnAndroid();
+#endif
     port::Port p;
     auto &o = p.opt;
     for (int i = 1; i < argc; i++) {
@@ -1458,14 +1483,7 @@ int main(int argc, char **argv) {
         } else if (a == "--cpu") {
             o.cpuMode = next();
         } else if (a == "--list-features") {
-            // For the launcher: one optional feature per line (recomp-common/settings.h)
-            satrecomp::RegisterGame();
-            port::RegisterPortFeatures();
-            // (not those whose switch is on the launcher's first page: game.h, kFeatureFirstPage)
-            std::vector<recomp::FeatureInfo> list = satrecomp::FeatureList();
-            list.erase(std::remove_if(list.begin(), list.end(), [](const recomp::FeatureInfo &f) { return f.flags & satrecomp::kFeatureFirstPage; }),
-                       list.end());
-            fputs(recomp::FeatureListText(list).c_str(), stdout);
+            fputs(LauncherFeatureList().c_str(), stdout);
             return 0;
         } else if (a == "--menu") {
             p.menuTest = next();

@@ -123,6 +123,8 @@ int rmenu_speed(const RMenu* menu);
 void rmenu_setSpeed(RMenu* menu, int speed);
 // a line to tell the player (e.g. why not), until the next press; copied
 void rmenu_note(RMenu* menu, const char* text);
+// compact (nonzero): the rows in the small letters, close together, for a screen of few lines (menu.h, SetCompact)
+void rmenu_setCompact(RMenu* menu, int compact);
 // over a picture of 32-bit pixels (red in the low byte)
 void rmenu_draw(const RMenu* menu, uint32_t* pixels, int width, int height);
 

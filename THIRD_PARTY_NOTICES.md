@@ -64,6 +64,13 @@ A custom soundtrack (`port/soundtrack.h`) reads the player's music files with th
 | `port/decoders/dr_mp3.h` | dr_libs `dr_mp3` 0.7.4 (the same commit), by David Reid, after minimp3 by lieff | Public domain, or MIT No Attribution |
 | `port/decoders/dr_wav.h` | dr_libs `dr_wav` 0.14.6 (the same commit), by David Reid | Public domain, or MIT No Attribution |
 
+### Country flags (MIT)
+
+`recomp-common/launcher/flags.png` (compiled into the launcher) holds every ISO country's flag from
+[flag-icons](https://github.com/lipis/flag-icons) 7.2.3, Copyright (c) 2013 Panayiotis Lipiridis, MIT License;
+`recomp-common/launcher/src/countries.h` has their names from it. A release carries the license as
+`licenses/flag-icons-MIT.txt`.
+
 ## Downloaded at build time
 
 None of these is stored in this repository.
@@ -75,11 +82,12 @@ None of these is stored in this repository.
 | [Inter](https://rsms.me/inter/) 4.1 | SIL Open Font License 1.1. Copyright (c) 2016 The Inter Project Authors | The launcher's font, compiled into the launcher |
 | [librashader](https://github.com/SnowflakePowered/librashader) 0.12.1 | MPL-2.0 or GPL-3.0 (used here under GPL-3.0). Copyright (c) chyyran and its contributors | The Display page's shaders (`port/shading.h`): a library beside the game (`librashader.dylib`, `.so`, `.dll`), built from source by `tools/librashader.sh` with the Rust crates its `Cargo.lock` names; opened only when a shader is chosen |
 | [slang-shaders](https://github.com/libretro/slang-shaders) (commit `2b0530b`) | Each file its own, stated at its top: crt-geom-mini (after cgwg's crt-geom), CRT Royale (TroggleMonkey), CRT Guest (guest(r), Dr. Venom) and zfast-crt, CRT Light (Greg Hogan) GPL-2.0-or-later; CRT Lottes (Timothy Lottes), scanline-fract (hunterk) and sharp-bilinear-scanlines (rsn8887) public domain; xBRZ (Hyllian, Zenju) and ScaleFX (Sp00kyFox) and the blur and gamma includes MIT; the stock pass (libretro), ossc (DariusG) and integer-scaling-scanlines with no notice, and crt-geom-mini's linearize pass none either | The presets the Display page's Shader names, with the files they use, in a `shaders` folder beside the game (`tools/shaders.py`) |
+| [libchdr](https://github.com/rtissera/libchdr) (commit `47d7941`) | BSD-3-Clause. Copyright Romain Tisserand. With its bundled LZMA SDK decoder (public domain, Igor Pavlov), Zstandard decoder (BSD-3-Clause, Meta Platforms), miniz (MIT, Rich Geldreich and others; the launcher's only) and dr_flac (public domain, or MIT No Attribution, David Reid) | Reading `.chd` disc images (`port/disc_image.cpp`), compiled into the game and the launcher |
 | [zlib](https://zlib.net) | zlib. Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler | Screenshots (PNG); the system's |
 
 Each download is checked against its published SHA-256. A game that gives out built programs must
-carry the license texts of SDL 3, Dear ImGui, Inter (the font is inside the launcher) and flag-icons (the
-country flags, above) with them,
+carry the license texts of SDL 3, Dear ImGui, Inter (the font is inside the launcher), flag-icons (the
+country flags, above) and libchdr with them,
 and the GPL-3.0 with the offer of source that goes with it.
 
 ## Tools used to build (not included in builds)

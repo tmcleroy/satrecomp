@@ -7,6 +7,7 @@
 #include "launcher.h"
 
 #include "../../port/bindings.h"
+#include "../../port/disc_image.h"
 
 #include <algorithm>
 #include <cctype>
@@ -49,32 +50,26 @@ std::string first_track_of(const std::string& cue) {
     return {};
 }
 
-// The Saturn disc header (the first 256 bytes of the first sector): at the start of a 2048-byte
-// sector image, or after the 16-byte sync and header of a raw 2352-byte sector.
-bool read_disc_header(const std::string& file, char header[256]) {
-    std::FILE* f = std::fopen(file.c_str(), "rb");  // read only, always
-    if (!f) {
-        return false;
-    }
-    char sector[16 + 256];
-    size_t got = std::fread(sector, 1, sizeof sector, f);
-    std::fclose(f);
-    static const char kMagic[] = "SEGA SEGASATURN ";
-    for (size_t offset : {size_t{0}, size_t{16}}) {
-        if (got >= offset + 256 && std::memcmp(sector + offset, kMagic, 16) == 0) {
-            std::memcpy(header, sector + offset, 256);
-            return true;
-        }
-    }
-    return false;
+bool is_disc_image(const std::string& ext) {
+    return ext == ".cue" || ext == ".iso" || ext == ".chd";
 }
 
-// The product number in a disc image's header (.cue or .iso), or "" if it is not a readable Saturn disc
+// The Saturn disc header (the first 256 bytes of the first sector), read as the game reads the disc
+// (port/disc_image.cpp: a .cue and its .bin files, an .iso or a .chd)
+bool read_disc_header(const std::string& image, char header[256]) {
+    port::DiscImage disc;  // read only, always
+    uint8_t sector[2048];
+    if (!disc.Open(image) || !disc.ReadUserData(150, sector) || std::memcmp(sector, "SEGA SEGASATURN ", 16) != 0) {
+        return false;
+    }
+    std::memcpy(header, sector, 256);
+    return true;
+}
+
+// The product number in a disc image's header, or "" if it is not a readable Saturn disc
 std::string disc_product(const std::filesystem::path& image) {
-    std::string ext = lower_extension(image.string());
-    std::string data = ext == ".cue" ? first_track_of(image.string()) : ext == ".iso" ? image.string() : std::string();
     char header[256];
-    if (data.empty() || !read_disc_header(data, header)) {
+    if (!is_disc_image(lower_extension(image.string())) || !read_disc_header(image.string(), header)) {
         return {};
     }
     return trimmed(header + 0x20, 10);
@@ -99,7 +94,7 @@ std::string find_extra_disc(const std::string& disc) {
         std::vector<std::filesystem::path> images;
         for (const auto& entry : std::filesystem::directory_iterator(where, error)) {
             const std::string ext = lower_extension(entry.path().string());
-            if (entry.is_regular_file(error) && (ext == ".cue" || ext == ".iso")) {
+            if (entry.is_regular_file(error) && is_disc_image(ext)) {
                 images.push_back(entry.path());
             }
         }
@@ -113,7 +108,7 @@ std::string find_extra_disc(const std::string& disc) {
     return {};
 }
 
-// A disc image: .cue (with its .bin files) or .iso, the two the port reads (port/disc_image.cpp). Reads the
+// A disc image: .cue (with its .bin files), .iso or .chd, the ones the port reads (port/disc_image.cpp). Reads the
 // disc's header to tell which game and release it is. The launcher only ever reads it: never copies, moves or
 // changes it.
 launcher::FileCheck check_disc(const std::string& path) {
@@ -125,27 +120,24 @@ launcher::FileCheck check_disc(const std::string& path) {
         return check;
     }
     std::string ext = lower_extension(path);
-    std::string data;
     if (ext == ".cue") {
-        data = first_track_of(path);
+        const std::string data = first_track_of(path);
         if (data.empty() || !std::filesystem::is_regular_file(data, error)) {
             check.result = Result::NotUsable;
             check.message = "The .cue file's tracks (.bin files) aren't next to it.";
             return check;
         }
-    } else if (ext == ".iso") {
-        data = path;
-    } else if (ext == ".chd" || ext == ".ccd" || ext == ".mds") {
+    } else if (ext == ".ccd" || ext == ".mds") {
         check.result = Result::NotUsable;
-        check.message = "This kind of disc image can't be read yet. Use a .cue file with its .bin files, or an .iso.";
+        check.message = "This kind of disc image can't be read yet. Use a .chd, a .cue file with its .bin files, or an .iso.";
         return check;
-    } else {
+    } else if (!is_disc_image(ext)) {
         check.result = Result::NotUsable;
-        check.message = "This isn't a disc image. Choose the .cue file (or an .iso).";
+        check.message = "This isn't a disc image. Choose the .chd or .cue file (or an .iso).";
         return check;
     }
     char header[256];
-    if (!read_disc_header(data, header)) {
+    if (!read_disc_header(path, header)) {
         check.result = Result::NotUsable;
         check.message = "This isn't a Sega Saturn disc.";
         return check;
@@ -212,11 +204,21 @@ const launcher::Description& launcher::describe() {
         Description d;
         d.original = "on the Saturn";
         d.file_heading = "GAME DISC";
+#ifdef __ANDROID__
+        // (Android: the system's picker gives the files, which are copied into the app's folder; the .chd or .cue among them
+        // is the disc: recomp-common's launcher, Description::file_many)
+        d.file_intro = "Choose your own copy of the game (a disc image): its .chd file, or its .cue file and all its .bin files "
+                       "together. They are copied into the app's folder.\n\nWhile playing, Back or the screen's Menu button, or Back (Select) on a "
+                       "gamepad, opens the in-game menu.";
+        d.file_empty = "No game disc chosen. Choose its .chd file, or its .cue file and all its .bin files.";
+        d.file_many = true;
+#else
         d.file_intro = "Choose your own copy of the game (a disc image). It stays where it is: the launcher only reads it. Pictures you "
                        "export from the in-game menu (Export pictures) go to the pictures folder of YOUR FILES, below.";
-        d.file_empty = "No game disc chosen. Drop its .cue file on this window or choose it.";
+        d.file_empty = "No game disc chosen. Drop its .chd or .cue file on this window or choose it.";
+#endif
         d.file_not_set_up = "The game isn't set up yet. Open the launcher (without --play) once to choose your game disc.";
-        d.file_filter = {"Saturn disc image", "cue;iso"};
+        d.file_filter = {"Saturn disc image", "chd;cue;iso"};
         d.file_key = "disc";
         d.check = check_disc;
         d.arguments = arguments;
@@ -225,7 +227,7 @@ const launcher::Description& launcher::describe() {
         static const std::string soundtrack_detail =
             std::string("Music in place of the disc's, while the Custom soundtrack feature is on. Put in this folder your own "
                         "music files, named after the songs") +
-            (std::strlen(LAUNCHER_SOUNDTRACK_DISCS) > 0 ? std::string(", or the disc image of ") + LAUNCHER_SOUNDTRACK_DISCS + " (its .cue and .bin files)"
+            (std::strlen(LAUNCHER_SOUNDTRACK_DISCS) > 0 ? std::string(", or the disc image of ") + LAUNCHER_SOUNDTRACK_DISCS + " (its .chd, or its .cue and .bin files)"
                                                         : std::string()) +
             ". The game writes songs.txt there: the songs' names, and what plays for each. None chosen: the soundtrack folder "
             "in the game's own folder.";
@@ -239,7 +241,12 @@ const launcher::Description& launcher::describe() {
         };
         d.bindings = port::BindingTable();
         d.controls_heading = "WHILE PLAYING";
+#ifdef __ANDROID__
+        d.controls = {{"Touch", "The stick at the left, the buttons at the right; MENU opens the in-game menu, as Back does. They hide while a gamepad or keys are used, and come back at a touch."},
+                      {"Gamepad", "Back (Select), alone or with Start, or a stick's click opens and closes the menu. (A button given to the game above does only that.)"}};
+#else
         d.controls = {{"Keys", "Esc or F1: menu (save states, cheats, training aids, quit)   F11: full screen. On a gamepad: Back (Select), alone or with Start, or a stick's click opens and closes the menu. (A button given to the game above does only that.)"}};
+#endif
         return d;
     }();
     return about;

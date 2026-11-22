@@ -19,6 +19,13 @@ if (EXISTS "${GAME_DIR}/game.cfg")
     file(STRINGS "${GAME_DIR}/game.cfg" GAME_COMBOS REGEX "^combos[ \t]*=")
     string(REGEX REPLACE "^combos[ \t]*=[ \t]*" "" GAME_COMBOS "${GAME_COMBOS}")
 endif ()
+# The game's buttons on a touch screen (game.cfg's `touch_buttons`, named as `combos` names them: port/touch.h);
+# without, the Saturn's own
+set(GAME_TOUCH "")
+if (EXISTS "${GAME_DIR}/game.cfg")
+    file(STRINGS "${GAME_DIR}/game.cfg" GAME_TOUCH REGEX "^touch_buttons[ \t]*=")
+    string(REGEX REPLACE "^touch_buttons[ \t]*=[ \t]*" "" GAME_TOUCH "${GAME_TOUCH}")
+endif ()
 
 find_package(SDL3 REQUIRED CONFIG)
 find_package(ZLIB REQUIRED)
@@ -40,9 +47,18 @@ if (NOT GAME_SOURCES)
 endif ()
 
 # The game, on satrecomp's own machine (machine/). No emulator is compiled or linked into it.
-add_executable(${GAME}
+# (Android: a library, which the game's activity loads and calls the main of: android/, port/android.cpp)
+set(PLATFORM_SOURCES "")
+if (ANDROID)
+    add_library(${GAME} SHARED)
+    set(PLATFORM_SOURCES port/android.cpp)
+else ()
+    add_executable(${GAME})
+endif ()
+target_sources(${GAME} PRIVATE
     ${GAME_SOURCES}
-    port/main.cpp
+    ${PLATFORM_SOURCES}
+    port/main.cpp port/touch.cpp
     port/disc_files.cpp port/disc_image.cpp port/soundtrack.cpp port/decoders.cpp
     port/frontend_sdl.cpp port/shading.cpp port/menu.cpp port/pictures.cpp port/hud.cpp recomp-common/menu.cpp recomp-common/settings.cpp
     video/renderer.cpp video/regs.cpp video/layers.cpp video/vdp1.cpp video/raster.cpp video/gpu.cpp
@@ -53,9 +69,16 @@ add_executable(${GAME}
     runtime/hle_bios.cpp
     ${GEN_SOURCES}
 )
-target_compile_definitions(${GAME} PRIVATE SATRECOMP_OWN_MACHINE "SATRECOMP_COMBOS=\"${GAME_COMBOS}\"")
+target_compile_definitions(${GAME} PRIVATE SATRECOMP_OWN_MACHINE "SATRECOMP_COMBOS=\"${GAME_COMBOS}\"" "SATRECOMP_TOUCH=\"${GAME_TOUCH}\"")
 target_include_directories(${GAME} PRIVATE runtime port "${WORK_DIR}/gen")
 target_link_libraries(${GAME} PRIVATE SDL3::SDL3 ZLIB::ZLIB)
+if (ANDROID)
+    # (the system's log; and calls of the library's own functions kept inside it, not through the PLT: as
+    # Soulcalibur II's Android build found, that is several per cent of a frame)
+    target_link_libraries(${GAME} PRIVATE log android)
+    target_compile_options(${GAME} PRIVATE -fno-semantic-interposition)
+    target_link_options(${GAME} PRIVATE -Wl,-Bsymbolic)
+endif ()
 target_compile_options(${GAME} PRIVATE -Wno-unused-parameter)
 
 # The reference build (-DSATRECOMP_REFERENCE=ON, 'make ref'): the same game code on the Ymir hardware model,
@@ -101,7 +124,7 @@ add_subdirectory("${YMIR_DIR}/libs/ymir-core" ymir-core EXCLUDE_FROM_ALL)
     endif ()
     add_executable(${GAME}-ref
         ${GAME_SOURCES}
-        port/main.cpp
+        port/main.cpp port/touch.cpp
         port/disc_files.cpp port/disc_image.cpp port/soundtrack.cpp port/decoders.cpp
         port/video_stats.cpp
         port/frontend_sdl.cpp port/shading.cpp port/menu.cpp port/pictures.cpp port/hud.cpp recomp-common/menu.cpp recomp-common/settings.cpp
@@ -117,4 +140,13 @@ add_subdirectory("${YMIR_DIR}/libs/ymir-core" ymir-core EXCLUDE_FROM_ALL)
     target_include_directories(${GAME}-ref PRIVATE runtime port "${WORK_DIR}/gen-ref" third_party/Ymir/libs/ymir-core/src)
     target_link_libraries(${GAME}-ref PRIVATE ymir::ymir-core SDL3::SDL3 ZLIB::ZLIB)
     target_compile_options(${GAME}-ref PRIVATE -Wno-unused-parameter)
+endif ()
+
+# .chd disc images (port/disc_image.cpp): libchdr, with the system's zlib, which the game links already. (Added
+# after the reference build's emulator, which may bring its own copy: then that one is used.)
+set(CHDR_USE_SYSTEM_ZLIB ON)
+include(port/libchdr.cmake)
+target_link_libraries(${GAME} PRIVATE chdr-static)
+if (TARGET ${GAME}-ref)
+    target_link_libraries(${GAME}-ref PRIVATE chdr-static)
 endif ()

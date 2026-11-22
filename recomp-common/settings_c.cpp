@@ -42,6 +42,16 @@ void rsettings_feature_values(const char *path, const RFeature *features, int co
     }
 }
 
+bool rsettings_set_preset(const char *path, const RFeature *features, int count, const char *preset) {
+    if (!path || !preset) {
+        return false;
+    }
+    recomp::Ini ini(path);
+    ini.load();
+    recomp::SetPreset(ini, List(features, count), preset);
+    return ini.save();
+}
+
 bool rsettings_set_feature(const char *path, const RFeature *features, int count, int index, int value) {
     if (!path || index < 0 || index >= count) {
         return false;

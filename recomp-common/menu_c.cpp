@@ -148,6 +148,10 @@ void rmenu_note(RMenu *menu, const char *text) {
     menu->menu.Note(Str(text));
 }
 
+void rmenu_setCompact(RMenu *menu, int compact) {
+    menu->menu.SetCompact(compact != 0);
+}
+
 void rmenu_draw(const RMenu *menu, uint32_t *pixels, int width, int height) {
     menu->menu.Draw(pixels, width, height);
 }

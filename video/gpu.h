@@ -20,6 +20,11 @@ namespace satrecomp::video {
 // whole window
 SDL_FRect FitPicture(int width, int height, float columns, float lines, float aspect, int scaling, int shape);
 
+// The GPU device (Vulkan or Metal), without the optional features SDL asks for unless told not to, none of which the
+// renderer uses: many phones' GPUs lack one (Mali: drawIndirectFirstInstance), and SDL then gives no device at all,
+// which leaves the game drawing in software (no high resolution, no widescreen)
+SDL_GPUDevice *CreateDevice(bool debug);
+
 class Gpu {
 public:
     bool Init(SDL_GPUDevice *device);
@@ -100,8 +105,21 @@ public:
         m_hudShown = false;
     }
     bool ReadShown(std::vector<uint32_t> &pixels);
+    // What is drawn over the whole window after the picture (a touch screen's controls, port/touch.h): 32-bit
+    // pixels, red in the low byte, their alpha premultiplied, stretched to the window; nullptr: nothing
+    void SetWindowLayer(const uint32_t *pixels, uint32_t width, uint32_t height);
 
 private:
+    // (the window's layer: its texture, and the pipeline that blends it over the swapchain, made for the
+    // swapchain's format the first time it is drawn)
+    SDL_GPUTexture *m_windowLayer = nullptr;
+    uint32_t m_windowLayerWidth = 0, m_windowLayerHeight = 0;
+    bool m_windowLayerShown = false;
+    SDL_GPUGraphicsPipeline *m_windowLayerPipeline = nullptr;
+    SDL_GPUTextureFormat m_windowLayerFormat = SDL_GPU_TEXTUREFORMAT_INVALID;
+    void DrawWindowLayer(SDL_GPUCommandBuffer *cmd, SDL_Window *window, SDL_GPUTexture *swapchain);
+    // Puts pixels into a texture (made again at that size if it is not)
+    bool Upload(SDL_GPUTexture *&texture, uint32_t &textureWidth, uint32_t &textureHeight, const uint32_t *pixels, uint32_t width, uint32_t height);
     void ApplyHud();
     SDL_GPUGraphicsPipeline *m_hudPipeline = nullptr;
     SDL_GPUSampler *m_linear = nullptr;

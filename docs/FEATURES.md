@@ -179,7 +179,7 @@ named after the song or its track's number, as Ogg Vorbis, FLAC, MP3 or WAV; the
 folder as `songs.txt` (`--list-songs` prints them). `soundtrack.ini` there can name a file for a song, its loop,
 its volume, or a track of another disc image the player has (`disc = ...`, `track = N`). A game may list other
 discs with some of its music (`Game::songDiscs`: a disc's product number, or its title where every release has
-the same tracks, and which of its tracks are which of the game's): such a disc image put in the folder (its .cue,
+the same tracks, and which of its tracks are which of the game's): such a disc image put in the folder (its .chd or .cue,
 or a folder with it) is found and used with nothing more. `songs.txt`, written at every start, says how, which
 discs were found, and what plays for each song; game.cfg's `soundtrack_discs` names the discs on the launcher's
 row, which shows only for a game whose game.cfg says `custom_soundtrack = yes` (one with `Game::songs`). Fighters Megamix takes the Vipers' and Virtua Fighter 2's stage music, full length, from their discs this
