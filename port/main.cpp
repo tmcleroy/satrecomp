@@ -34,6 +34,7 @@
 #include <array>
 #include <unistd.h>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -133,8 +134,8 @@ static void RegisterPortFeatures() {
                              "computer. Scanlines: the lines alone, light, strong, as an OSSC draws them, or dark. xBRZ and "
                              "ScaleFX: the pixels' edges made smooth lines and curves. Your own: the first .slangp preset in "
                              "the shaders folder beside the game's settings. The picture's shape stays as set.",
-                             0, {"Off", "CRT", "CRT Lottes", "CRT Royale", "CRT Guest", "CRT Light", "Scanlines, light",
-                                 "Scanlines, strong", "Scanlines, OSSC", "Scanlines, dark", "xBRZ", "ScaleFX", "Your own"}});
+                             0, {"Off", "CRT", "CRT Lottes", "CRT Royale", "CRT Guest", "CRT Light", "Scanlines: light",
+                                 "Scanlines: strong", "Scanlines: OSSC", "Scanlines: dark", "xBRZ", "ScaleFX", "Your own"}});
     // (custom_soundtrack: soundtrack.h; for a game whose sources name its music)
     if (!game.songs.empty()) {
         game.features.push_back({"custom_soundtrack", "Sound", "Custom soundtrack",
@@ -791,12 +792,17 @@ void Port::RunFrame() {
         }
     }
 
-    // (tests: --menu FRAME:KEYS[:shot.png]: the menu opened at that frame and those buttons pressed in it)
+    // (tests: --menu FRAME:KEYS[:shot.png]: the menu opened at that frame and those buttons pressed in it: u d l r a s b)
     if (!menuTest.empty() && strtoull(menuTest.c_str(), nullptr, 10) == frame) {
         const size_t first = menuTest.find(':'), second = menuTest.find(':', first + 1);
         const std::string keys = menuTest.substr(first + 1, second == std::string::npos ? std::string::npos : second - first - 1);
         menu.Open(true);
         for (const char key : keys) {
+            // (b: the menu's Back, as Backspace or a gamepad's B)
+            if (key == 'b') {
+                MenuAct(menu.Press(recomp::kMenuBack));
+                continue;
+            }
             const uint16_t button = key == 'u' ? kPadUp : key == 'd' ? kPadDown : key == 'l' ? kPadLeft : key == 'r' ? kPadRight : key == 'a' ? kPadA : key == 's' ? kPadStart : 0;
             MenuAct(menu.Buttons(button));
         }
@@ -904,6 +910,12 @@ void Port::MenuAct(Menu::Action action) {
         menu.Close();
         return;
     }
+    if (action == Menu::Action::ResetOptions) {
+        // (every feature as the launcher's Enhanced preset has it; the menu has put the speed back to full)
+        satrecomp::ResetFeatures();
+        menu.Note("Every option is back as it first was.");
+        return;
+    }
     if (action == Menu::Action::ExportPictures || action == Menu::Action::ShowPictures) {
         // (the menu stays open, its note saying what happened and where)
         const std::string folder = PicturesFolder();
@@ -998,7 +1010,7 @@ namespace {
 void Port::RunAhead() {
     const int ahead = satrecomp::FeatureValue("run_ahead");
     // (nor while going on a frame at a time or slowed: there the frame shown is the frame)
-    if (ahead <= 0 || stepping || menu.Speed() != 100 || !videoRenderer ||
+    if (ahead <= 0 || stepping || !menu.FullSpeed() || !videoRenderer ||
         (satrecomp::TheGame().noRunAhead && satrecomp::TheGame().noRunAhead())) {
         return;
     }
@@ -1201,6 +1213,33 @@ void Port::SaveShot(const std::string &path) {
         DrawHud(shown.data(), static_cast<int>(fbWidth), static_cast<int>(fbHeight));
         WritePng(path.c_str(), shown.data(), fbWidth, fbHeight);
     }
+}
+
+std::string Port::Screenshot() {
+    std::string folder = satrecomp::DataFilePath("screenshots");
+    if (folder.empty()) {
+        folder = (std::filesystem::current_path() / "screenshots").string();
+    }
+    std::error_code fault;
+    std::filesystem::create_directories(folder, fault);
+    char stamp[32] = "";
+    const std::time_t now = std::time(nullptr);
+    if (const std::tm *local = std::localtime(&now)) {
+        std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H.%M.%S", local);
+    }
+    // (another in the same second: a number after it)
+    std::string name = std::string(GAME_ID " ") + stamp;
+    for (int n = 2; std::filesystem::exists(std::filesystem::path(folder) / (name + ".png")); n++) {
+        name = std::string(GAME_ID " ") + stamp + " " + std::to_string(n);
+    }
+    const std::string path = (std::filesystem::path(folder) / (name + ".png")).string();
+    SaveShot(path);
+    if (!std::filesystem::exists(path)) {
+        fprintf(stderr, "screenshot: could not write %s\n", path.c_str());
+        return "SCREENSHOT NOT SAVED";
+    }
+    fprintf(stderr, "screenshot: %s\n", path.c_str());
+    return "SCREENSHOT SAVED";
 }
 
 static uint64_t Fnv(uint64_t h, const void *data, size_t size) {
