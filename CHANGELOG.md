@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The launcher's link to where the players talk: game.cfg's `community_url`, `community_title`, `community_detail`
+  and `community_button` (a Discord invite, say) give a card on the Game page under Play (recomp-common a3983c5,
+  `Description::community_url`; its words in Spanish and Portuguese too). The recomp-common copy also brings Reset
+  all options asking "Are you sure?" first, a smaller font for readouts, and Windows requests made with WinHTTP.
 - The in-game menu as the other ports have it (recomp-common 989f983, `menu_layout.h` and `menu_sdl.h`): the
   standard first page (Display, Game; Alternative modes; the save states; the reset point's rows; Reset all
   options, Reset game, Quit game, Resume), Speed and Mute on the Game page, Cheats and Sound under it. Reset all

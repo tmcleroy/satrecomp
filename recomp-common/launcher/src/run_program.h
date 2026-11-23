@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Tommy McLeroy. Part of recomp-common: https://github.com/tmcleroy/recomp-common
 #pragma once
 // Running another program and reading what it writes (with no console window on Windows): the system's curl, for
-// the updates (update.h) and the Online card's list of open matches (online.h).
+// the updates (update.h) and the Online card's list of open matches (online.h). On Windows, with RECOMP_WINHTTP, curl's
+// requests are made by this program itself instead (winhttp_curl.h).
 
 #include <filesystem>
 #include <string>

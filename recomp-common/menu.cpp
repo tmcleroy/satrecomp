@@ -16,7 +16,7 @@ using namespace text;
 
 namespace {
     // (after MenuRow's kinds, which the first page's rows keep)
-    enum { kRowSave, kRowLoad, kRowSlot, kRowSpeed, kRowAction, kRowQuit, kRowResume, kRowCommand, kRowPage, kRowFeature, kRowBack, kRowMute, kRowFavourites, kRowReset, kRowResetOptions };
+    enum { kRowSave, kRowLoad, kRowSlot, kRowSpeed, kRowAction, kRowQuit, kRowResume, kRowCommand, kRowPage, kRowFeature, kRowBack, kRowMute, kRowFavourites, kRowReset, kRowResetOptions, kRowNo, kRowYes };
     constexpr unsigned kArrows = kMenuUp | kMenuDown | kMenuLeft | kMenuRight;
 } // namespace
 
@@ -116,6 +116,22 @@ void Menu::Enter(const std::string &page) {
 void Menu::Fill() {
     m_rows.clear();
     m_first.clear();
+    // (Reset all options asked about: No and Yes alone; the first page's rows are kept, for the row's description)
+    if (m_confirm) {
+        for (const std::vector<MenuRow> &group : m_config.groups) {
+            m_first.insert(m_first.end(), group.begin(), group.end());
+        }
+        if (m_confirmIndex < m_first.size() && m_first[m_confirmIndex].kind == MenuRow::ResetOptions) {
+            m_rows.push_back({kRowNo, m_confirmIndex, ""});
+            m_rows.push_back({kRowYes, m_confirmIndex, ""});
+            m_selected = std::clamp(m_selected, 0, 1);
+            return;
+        }
+        // (the row is no longer there: back to the page)
+        m_first.clear();
+        m_confirm = false;
+        m_selected = m_confirmFrom;
+    }
     // (a page that is no longer there: the first page)
     if (!m_page.empty() && !Exists(m_page)) {
         m_page.clear();
@@ -226,8 +242,16 @@ void Menu::Fill() {
     m_selected = std::clamp(m_selected, 0, std::max(static_cast<int>(m_rows.size()) - 1, 0));
 }
 
+// From the page of No and Yes back to the page Reset all options is on, on its row
+void Menu::EndConfirm() {
+    m_confirm = false;
+    m_selected = m_confirmFrom;
+    Fill();
+}
+
 void Menu::Open() {
     m_note.clear();
+    m_confirm = false; // (asked again each time: never left open across a close)
     Fill(); // (on the page, and the row, it was closed on)
     m_open = true;
 }
@@ -237,6 +261,10 @@ Menu::Chosen Menu::Buttons(unsigned pressed) {
         return {};
     }
     m_note.clear();
+    if (m_confirm && (pressed & (kMenuBack | kMenuLeft))) {
+        EndConfirm(); // (Back and Left: No)
+        return {};
+    }
     if (pressed & kMenuBack) {
         if (m_page.empty()) {
             m_open = false;
@@ -336,7 +364,19 @@ Menu::Chosen Menu::Buttons(unsigned pressed) {
     case kRowAction: return {Chosen::Action, m_first[row.index].id};
     case kRowQuit: return {Chosen::Quit, 0};
     case kRowReset: return {Chosen::Reset, 0};
-    case kRowResetOptions: SetSpeed(m_config.normalSpeed); return {Chosen::ResetOptions, 0};
+    case kRowResetOptions:
+        // (asked first: a booby trap otherwise, next to Reset game)
+        m_confirm = true;
+        m_confirmIndex = row.index;
+        m_confirmFrom = m_selected;
+        m_selected = 0; // (No)
+        Fill();
+        break;
+    case kRowNo: EndConfirm(); break;
+    case kRowYes:
+        EndConfirm();
+        SetSpeed(m_config.normalSpeed);
+        return {Chosen::ResetOptions, 0};
     case kRowResume: m_open = false; break;
     case kRowCommand: return {Chosen::Command, static_cast<int>(row.index)};
     case kRowPage: Enter(row.page); break;
@@ -421,6 +461,15 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
             break;
         case kRowResetOptions:
             title = Tr("Reset all options");
+            rowDescription = Tr(m_first[row.index].description.empty() ? "Puts every option back as it first was, and the speed to full."
+                                                                        : m_first[row.index].description.c_str());
+            break;
+        case kRowNo:
+            title = Tr("No");
+            rowDescription = Tr("Keeps every option as it is.");
+            break;
+        case kRowYes:
+            title = Tr("Yes");
             rowDescription = Tr(m_first[row.index].description.empty() ? "Puts every option back as it first was, and the speed to full."
                                                                         : m_first[row.index].description.c_str());
             break;
@@ -570,7 +619,12 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
     float y = py + pad;
     m_panelLeft = px;
     m_panelRight = px + panelWidth;
-    canvas.Text(x, y, 2 * d, 0, white, Tr(m_page.empty() ? "Menu" : m_page.c_str()));
+    {
+        // (the page's name; one too long for the panel, a narrow or low screen: in the small letters)
+        const std::string heading = m_confirm ? Tr("Reset all options: are you sure?") : Tr(m_page.empty() ? "Menu" : m_page.c_str());
+        const bool fits = TextWidth(heading.c_str(), 2 * d) <= inner;
+        canvas.Text(x, fits ? y : y + 4 * d, fits ? 2 * d : d, 0, white, heading.c_str());
+    }
     if (shown < m_rows.size()) {
         const std::string place = i18n::TrFormat("{} of {}", {std::to_string(m_selected + 1), std::to_string(m_rows.size())});
         canvas.Text(x + inner - TextWidth(place.c_str(), d), y + 4 * d, d, 0, dim, place.c_str());

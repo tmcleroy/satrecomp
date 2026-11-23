@@ -239,6 +239,14 @@ const launcher::Description& launcher::describe() {
             {"high_resolution", "High resolution", "Polygons drawn at the window's resolution. Off: the original's.", true, nullptr},
             {"widescreen", "Widescreen", "16:9: fights show more at the sides. Needs high resolution.", false, "high_resolution"},
         };
+        // (where the players talk, game.cfg's community_url and the rest: a card on the Game page under Play)
+        if (std::strlen(LAUNCHER_COMMUNITY_URL) > 0) {
+            d.community_url = LAUNCHER_COMMUNITY_URL;
+            d.community_title = LAUNCHER_COMMUNITY_TITLE;
+            d.community_detail = LAUNCHER_COMMUNITY_DETAIL;
+            if (std::strlen(LAUNCHER_COMMUNITY_BUTTON) > 0)
+                d.community_button = LAUNCHER_COMMUNITY_BUTTON;
+        }
         d.bindings = port::BindingTable();
         d.controls_heading = "WHILE PLAYING";
 #ifdef __ANDROID__

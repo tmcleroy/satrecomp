@@ -12,6 +12,7 @@
 #include <SDL3/SDL.h>
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <future>
 #include <memory>
@@ -109,7 +110,11 @@ private:
 
         explicit Slot(const std::filesystem::path& settings_path) : settings(settings_path) {}
         std::filesystem::path program() const;
+        // (looked for on the disk at most every two seconds: the pages ask for each game many times a frame, and
+        // a look on the disk is slow on Windows)
         bool has_program() const;
+        mutable bool program_here = false;
+        mutable std::chrono::steady_clock::time_point program_looked{};
     };
     // A feature more than one of a collection's games has, set for all of them at once
     struct Shared {
@@ -153,6 +158,13 @@ private:
     // (launcher.ini [games] hardware; "": all)
     std::vector<std::string> hardwares() const;
     std::string hardware_chosen() const;
+    // hardware_chosen() and installed_only(), worked out once a frame (frame() and a change of either forgets
+    // them): every game's row on the pages asks for them, and each answer reads launcher.ini and every game
+    void forget_filters() { filters_known_ = false; }
+    mutable bool filters_known_ = false;
+    mutable bool installed_only_ = false;
+    mutable std::string hardware_chosen_;
+    void know_filters() const;
     // Whether the game is on the list as the hardware chosen has it
     bool on_hardware(size_t which) const;
     // order_ with each series' games together, where its first game with a page is (else its first game)
@@ -248,6 +260,9 @@ private:
     template <typename SetOffered>
     void menu_choices(float width, const FeatureRow& feature, std::vector<bool> offered, SetOffered set_offered);
     void set_menu_choices(Slot& one, size_t index, const std::vector<bool>& offered);
+    // One feature's row in a card (feature_list's, and the Online page's Host a match card's)
+    template <typename Set, typename Offered, typename SetOffered>
+    void feature_row(float width, const FeatureRow& feature, Set set, Offered offered, SetOffered set_offered);
     template <typename Set, typename Offered, typename SetOffered>
     void feature_list(float width, const std::vector<FeatureRow>& rows, const char* none, Set set, Offered offered, SetOffered set_offered,
                       bool whole = true);
@@ -266,13 +281,18 @@ private:
     void arcade_row(float width, const launcher::Online& online);
     // The input delay the player chose for the matches they host (`delay_argument`), added to Host's and Invite's
     void delay_arguments(std::vector<std::string>& args, const launcher::Online& online) const;
+    // The player's Allow spectators and Input delay: as chosen, or the game's defaults (Online::spectators_default,
+    // delay_default)
+    bool spectators_on(const launcher::Online& online) const;
+    int delay_chosen(const launcher::Online& online) const;
     void lobby_card(size_t which, float width, bool ready);
     // The Online page (a collection with a lobby: Collection::lobby): host in the lobby in any game, and every game's
     // open matches
     void online_page(float width);
+    void community_card(float width, const char* url, const char* title, const char* detail, const char* button);
     void load_online();
-    // How often the lobby is fetched and the waiting room checked in at (ms): every 10 seconds, or 20 while the launcher
-    // isn't the window in front (a player in the room is gone 30 seconds after their last check-in: online/)
+    // How often the lobby is fetched and the waiting room checked in at (ms): every 3 seconds, or 10 while the launcher
+    // isn't the window in front (a player in the room is gone 15 seconds after their last check-in: online/)
     Uint64 online_every() const;
     // The lobby's list from `url`, fetched again every online_every() while it is shown; the Online page's comes with the
     // waiting room's check-in instead (one request), from a service that gives it
@@ -291,11 +311,14 @@ private:
     int place_of(Page kind) const;
     void single_online_page(float width);
     void follow_room(bool here);
-    // A card's small capitals, with "Updates every 10 seconds" at the right, and a spinner beside it while `fetching`
+    // A card's small capitals, with "Updates every 3 seconds" at the right, and a spinner beside it while `fetching`
     void live_label(const char* text, float width, bool fetching);
     // A card's only row while there is nothing in it: `text`, with a spinner while `looking`
     void empty_row(float width, const char* text, bool looking);
     void country_row(float width);
+    // The Online page's last cards: the player's own (name, country, invitations, blocked) and Join with a code
+    void you_card(float width);
+    void join_code_card(float width);
     void room_card(float width, const std::vector<size_t>& playable);
     void invitations_card(float width);
     std::vector<std::string> invite_arguments(const launcher::Online& online, const launcher::RoomPlayer& player) const;
@@ -395,6 +418,8 @@ private:
     char online_name_[64] = {};
     // (the Online page's Join with a code: what is typed, the lookup of which game it is for, and what it said)
     char join_code_[32] = {};
+    bool join_code_open_ = false;  // (shown folded, under the page's other cards: the lobby's matches join without one)
+    bool name_up_top_ = false;     // (no name when the page was first opened: its field at the top, until the launcher closes)
     std::future<launcher::CodeLookup> join_lookup_;
     std::string join_said_;
     int join_needs_ = -1;  // (a game whose file must be chosen first: Add…)  // the player's name, as the lobby shows a match they host ([online] name)

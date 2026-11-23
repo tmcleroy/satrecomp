@@ -72,6 +72,10 @@ const launcher::Description &launcher::describe() {
         d.file_key = "file";
         d.check = check;
         d.find_beside = find_beside;
+        d.community_url = "https://example.com/community"; // (a Game page with the link, as the ports' have it)
+        d.community_title = "Join us on Discord";
+        d.community_detail = "Find players for a match, tell us what to fix or add, and hear about new versions first.";
+        d.community_button = "Open Discord";
         d.arguments = arguments;
         d.display = {
             {"fullscreen", "Full screen", "F11 switches while playing.", false, nullptr},

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Tommy McLeroy. Part of recomp-common: https://github.com/tmcleroy/recomp-common
 #include "run_program.h"
+#include "winhttp_curl.h"
 
 #include <system_error>
 
@@ -111,6 +112,14 @@ int run_program(const fs::path& program, const std::vector<std::string>& args, s
 #if defined(__ANDROID__)
     return program == curl_program() ? android_curl(args, output) : -1;
 #elif defined(_WIN32)
+#ifdef RECOMP_WINHTTP
+    // (curl's requests made here, with no curl.exe started: winhttp_curl.h)
+    if (program == curl_program()) {
+        if (const int code = winhttp_curl(args, output); code != -1) {
+            return code;
+        }
+    }
+#endif
     SECURITY_ATTRIBUTES security{sizeof security, nullptr, TRUE};
     HANDLE read = nullptr, write = nullptr;
     if (!CreatePipe(&read, &write, &security, 0)) {
