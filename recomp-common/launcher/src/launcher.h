@@ -88,6 +88,10 @@ struct Online {
     // Host and Invite add as `delay_argument N` when the player has chosen one (the game's own default otherwise); the
     // game tells the one joining. nullptr: no such choice.
     const char *delay_argument = nullptr; // "--net-delay"
+    // ... or each player's own (delay_own): Join adds it too, and the row says so (the game tells the others its own)
+    bool delay_own = false;
+    // The delay the row shows, and Host, Invite and Join add, until the player chooses one (the game's own default)
+    int delay_default = 2;
     // Inviting a player from the waiting room (Collection::room): Host with `invite_argument THEIRS:MINE` (the two
     // players' ids) and `invite_name_argument NAME` (theirs), and the player's own name with `name_argument`; the match
     // isn't listed. nullptr: no Invite.
@@ -104,6 +108,8 @@ struct Online {
     const char *game = nullptr;
     const char *watch_argument = nullptr; // watch a running match by code
     const char *spectators_argument = nullptr; // host opt-in to spectators
+    // Whether Allow spectators is on until the player switches it ([online] spectators)
+    bool spectators_default = false;
 };
 
 struct InfoRow {
@@ -160,6 +166,12 @@ struct Description {
     bool online_page = false;
     // The port's own pages after Game (and Online), before Features, rather than first
     bool own_pages_after_game = false;
+    // A link to where the players talk (a Discord server, say), as Collection::community_url has it: at the top of
+    // the Online page (online_page), else on the Game page under Play. nullptr: none.
+    const char *community_url = nullptr;
+    const char *community_title = "";
+    const char *community_detail = "";
+    const char *community_button = "Open";
     // Optional: the Game page's notice (Notice above), asked each time the page is drawn, with the player's folder
     std::function<Notice(const std::filesystem::path &folder)> notice;
     // false: no Game page (and no game file, check or Display card): the port's pages have Play
@@ -355,6 +367,15 @@ struct Collection {
     // The category of the features the Online page shows too, as the Features page does (what a match shows: the
     // ping...), or nullptr
     const char *online_features = nullptr;
+    // ... and of those, the ones the Online page shows in its Host a match card instead, under Host (the host's choices
+    // for the match: "online_set", say), comma-separated, or nullptr
+    const char *online_host_features = nullptr;
+    // A link at the top of the Online page to where the players talk (a Discord server, say): its row's title and
+    // detail, and the button that opens `community_url` in the browser. nullptr: none.
+    const char *community_url = nullptr;
+    const char *community_title = "";
+    const char *community_detail = "";
+    const char *community_button = "Open";
 };
 
 // A collection's own file defines this (and not describe()).

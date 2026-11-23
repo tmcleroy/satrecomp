@@ -64,11 +64,24 @@ if (EXISTS "${GAME_CFG}")
         set(GAME_CUSTOM_SOUNDTRACK 1)
     endif ()
 endif ()
+# (where the game's players talk, game.cfg's `community_url` (a Discord invite, say), `community_title`,
+# `community_detail` and `community_button`: a card on the launcher's Game page under Play,
+# recomp-common's Description::community_url; no url: none)
+foreach (key url title detail button)
+    string(TOUPPER "${key}" KEY)
+    set(GAME_COMMUNITY_${KEY} "")
+    if (EXISTS "${GAME_CFG}")
+        file(STRINGS "${GAME_CFG}" GAME_COMMUNITY_${KEY} REGEX "^community_${key}[ \t]*=")
+        string(REGEX REPLACE "^community_${key}[ \t]*=[ \t]*" "" GAME_COMMUNITY_${KEY} "${GAME_COMMUNITY_${KEY}}")
+    endif ()
+endforeach ()
 target_compile_definitions(launcher PRIVATE
     "LAUNCHER_SOUNDTRACK_DISCS=\"${GAME_SOUNDTRACK_DISCS}\"" "LAUNCHER_CUSTOM_SOUNDTRACK=${GAME_CUSTOM_SOUNDTRACK}"
     LAUNCHER_DISC_NAME="${DISC_NAME}" LAUNCHER_DISC_PRODUCT="${DISC_PRODUCT}" LAUNCHER_DISC_VERSION="${DISC_VERSION}"
     "SATRECOMP_COMBOS=\"${GAME_COMBOS}\""
-    "LAUNCHER_EXTRA_DISC_PRODUCT=\"${GAME_EXTRA_DISC_PRODUCT}\"" "LAUNCHER_EXTRA_DISC_NAME=\"${GAME_EXTRA_DISC_NAME}\"")
+    "LAUNCHER_EXTRA_DISC_PRODUCT=\"${GAME_EXTRA_DISC_PRODUCT}\"" "LAUNCHER_EXTRA_DISC_NAME=\"${GAME_EXTRA_DISC_NAME}\""
+    "LAUNCHER_COMMUNITY_URL=\"${GAME_COMMUNITY_URL}\"" "LAUNCHER_COMMUNITY_TITLE=\"${GAME_COMMUNITY_TITLE}\""
+    "LAUNCHER_COMMUNITY_DETAIL=\"${GAME_COMMUNITY_DETAIL}\"" "LAUNCHER_COMMUNITY_BUTTON=\"${GAME_COMMUNITY_BUTTON}\"")
 # (the disc check reads the disc image as the game does, .chd too: port/disc_image.cpp, with libchdr)
 target_sources(launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../port/disc_image.cpp)
 target_include_directories(launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../port)
