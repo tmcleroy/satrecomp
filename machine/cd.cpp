@@ -325,6 +325,30 @@ void Machine::CdPeriodic() {
         ++g_activity;
         return;
     }
+    // An audio track's sectors are not data: the drive sends them to the CD audio output, and never into the buffer
+    // (the reference emulator's drive does the same). A game's file library that drains the buffer after it
+    // started music would otherwise take the audio for a file: the sectors read back as zeros, over whatever
+    // the library then loads them into. Audio plays at 75 sectors a second, the periodic report comes 150 times
+    // a second: every other one moves on.
+    bool audio = false;
+    for (const Disc::Track &t : m_disc.tracks) {
+        if (cd.fad >= t.startFAD) {
+            audio = t.control == 0;
+        }
+    }
+    if (audio) {
+        if ((cd.periodicDue / (m_clock / 150)) & 1) {
+            return;
+        }
+        cd.fad++;
+        if (cd.fad >= cd.playEnd) {
+            cd.reading = false;
+            cd.status = 0x01;
+            cd.HIRQ |= kPEND;
+        }
+        ++g_activity;
+        return;
+    }
     cd.bufferFAD[cd.buffered++] = cd.fad;
     cd.fad++;
     cd.HIRQ |= kCSCT;
