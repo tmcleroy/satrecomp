@@ -46,6 +46,7 @@ bool Menu::Favourites(size_t feature) const {
 void Menu::Configure(MenuConfig config) {
     m_config = std::move(config);
     m_speed = std::clamp(m_speed < 0 ? m_config.normalSpeed : m_speed, 0, std::max(static_cast<int>(m_config.speeds.size()) - 1, 0));
+    m_slot = std::min(m_slot, SlotCount());
     if (m_open) {
         Fill();
     }
@@ -284,7 +285,7 @@ Menu::Chosen Menu::Buttons(unsigned pressed) {
     const bool press = pressed & kMenuConfirm;
     // Rows with several values: Left and Right go through them (Confirm goes on to the next, around)
     const int step = (pressed & kMenuLeft) ? -1 : (press || (pressed & kMenuRight)) ? 1 : 0;
-    if (row.kind == kRowSlot && step) { // 1-9, around
+    if (row.kind == kRowSlot && step) { // 1 to SlotCount(), around
         SetSlot(m_slot + step);
         return {};
     }
@@ -329,8 +330,11 @@ Menu::Chosen Menu::Buttons(unsigned pressed) {
             }
         } else {
             const int choices = static_cast<int>(feature.choices.size());
-            auto offered = [&](int choice) { return choice == 0 || choice == value || !m_config.offered || m_config.offered(row.index, choice); };
-            int to = value;
+            // (a value past the list's end, of a list built at run time that has become shorter, as its last: Left
+            // goes back into it)
+            const int now = std::clamp(value, 0, choices - 1);
+            auto offered = [&](int choice) { return choice == 0 || choice == now || !m_config.offered || m_config.offered(row.index, choice); };
+            int to = now;
             if (press) {
                 // (around, to the next one offered: off at the latest)
                 do {
@@ -338,7 +342,7 @@ Menu::Chosen Menu::Buttons(unsigned pressed) {
                 } while (!offered(to));
             } else {
                 // (to the next one offered that way; none: as it is)
-                for (int at = value + step; at >= 0 && at < choices; at += step) {
+                for (int at = now + step; at >= 0 && at < choices; at += step) {
                     if (offered(at)) {
                         to = at;
                         break;
@@ -436,7 +440,7 @@ void Menu::Draw(uint32_t *pixels, int width, int height) const {
         case kRowSlot:
             title = Tr("Slot");
             value = std::to_string(m_slot);
-            rowDescription = Tr("Left/Right: the slot (1-9) that Save state and Load state use.");
+            rowDescription = i18n::TrFormat("Left/Right: the slot (1-{}) that Save state and Load state use.", {std::to_string(SlotCount())});
             break;
         case kRowSpeed:
             title = Tr("Speed");

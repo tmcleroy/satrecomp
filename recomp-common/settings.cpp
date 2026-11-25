@@ -45,20 +45,152 @@ namespace {
 
     const char kSection[] = "features";
 
+    // A feature kept by name (FeatureInfo::ids), its name_id key, and its ids and their old numbers
+    bool ById(const FeatureInfo &feature) {
+        return !feature.ids.empty() && feature.ids.size() == feature.choices.size();
+    }
+
+    std::string IdKey(const FeatureInfo &feature) {
+        return feature.name + "_id";
+    }
+
+    // The choice an id names, or -1
+    int ChoiceOfId(const FeatureInfo &feature, const std::string &id) {
+        const auto at = std::find(feature.ids.begin(), feature.ids.end(), id);
+        return id.empty() || at == feature.ids.end() ? -1 : static_cast<int>(at - feature.ids.begin());
+    }
+
+    const std::vector<std::string> &NumberedOrder(const FeatureInfo &feature) {
+        return feature.numbered.empty() ? feature.ids : feature.numbered;
+    }
+
+    // The id an old number names ("" for none), and an id's old number (-1 for none)
+    std::string IdOfNumber(const FeatureInfo &feature, long number) {
+        const std::vector<std::string> &order = NumberedOrder(feature);
+        return number >= 0 && number < static_cast<long>(order.size()) ? order[static_cast<size_t>(number)] : "";
+    }
+
+    int NumberOfId(const FeatureInfo &feature, const std::string &id) {
+        const std::vector<std::string> &order = NumberedOrder(feature);
+        const auto at = std::find(order.begin(), order.end(), id);
+        return id.empty() || at == order.end() ? -1 : static_cast<int>(at - order.begin());
+    }
+
+    // A value as the file has it: 0 for off, otherwise its number (1 at least)
+    int NumberIn(const std::string &text) {
+        return SettingOff(text) ? 0 : std::max(std::atoi(text.c_str()), 1);
+    }
+
+    // Of a feature kept by name, the choice the file gives it: name_id's, or (none, or an id this build does not
+    // know) name's number in the old order; -1 for none at all (as the preset has it)
+    int StoredChoice(const Ini &ini, const FeatureInfo &feature) {
+        const std::string id = ini.get(kSection, IdKey(feature));
+        if (!id.empty()) {
+            if (SettingOff(id)) {
+                return 0;
+            }
+            if (const int choice = ChoiceOfId(feature, id); choice >= 0) {
+                return choice;
+            }
+        }
+        const std::string text = ini.get(kSection, feature.name);
+        if (text.empty()) {
+            return id.empty() ? -1 : 0; // (an id it does not know, with no number: a choice it has not)
+        }
+        return std::max(ChoiceOfId(feature, IdOfNumber(feature, NumberIn(text))), 0);
+    }
+
+    // Sets a key; whether it changed (none set to "" stays none)
+    bool Put(Ini &ini, const std::string &section, const std::string &key, const std::string &value) {
+        if (ini.get(section, key) == value) {
+            return false;
+        }
+        ini.set(section, key, value);
+        return true;
+    }
+
+    // Writes a feature's value: the number, or of a feature kept by name its id and its old number ("" for none)
+    void Write(Ini &ini, const FeatureInfo &feature, int value) {
+        if (!ById(feature)) {
+            ini.set(kSection, feature.name, std::to_string(value));
+            return;
+        }
+        const std::string &id = feature.ids[value >= 0 && value < static_cast<int>(feature.ids.size()) ? static_cast<size_t>(value) : 0];
+        const int number = NumberOfId(feature, id);
+        Put(ini, kSection, IdKey(feature), id);
+        Put(ini, kSection, feature.name, number >= 0 ? std::to_string(number) : "");
+    }
+
+    bool HasValue(const Ini &ini, const FeatureInfo &feature) {
+        return !ini.get(kSection, feature.name).empty() || (ById(feature) && !ini.get(kSection, IdKey(feature)).empty());
+    }
+
     // What the file says a feature is, or what the preset makes it
     int ValueOf(const Ini &ini, const FeatureInfo &feature, bool enhanced) {
         if (feature.flags & kFeatureSession) {
             return 0;
         }
-        const std::string text = ini.get(kSection, feature.name);
         int value = enhanced && (feature.flags & kFeatureEnhanced) ? 1 : 0;
-        if (!text.empty()) {
-            value = SettingOff(text) ? 0 : std::max(std::atoi(text.c_str()), 1);
+        if (ById(feature)) {
+            if (const int choice = StoredChoice(ini, feature); choice >= 0) {
+                value = choice;
+            }
+        } else if (const std::string text = ini.get(kSection, feature.name); !text.empty()) {
+            value = NumberIn(text);
         }
         if (feature.choices.empty()) {
             return value != 0;
         }
         return value < static_cast<int>(feature.choices.size()) ? value : 0;
+    }
+
+    // [menu]'s lists of the choices offered, for these: by name (name_id) and by old number (name); both "" when
+    // every one is
+    void MenuTexts(const FeatureInfo &feature, const std::vector<bool> &offered, std::string &ids, std::string &numbers) {
+        ids.clear();
+        numbers.clear();
+        bool all = true;
+        std::vector<int> old;
+        for (size_t choice = 1; choice < feature.choices.size(); choice++) {
+            if (choice < offered.size() && offered[choice]) {
+                if (ById(feature)) {
+                    ids += (ids.empty() ? "" : ",") + feature.ids[choice];
+                    if (const int number = NumberOfId(feature, feature.ids[choice]); number > 0) {
+                        old.push_back(number);
+                    }
+                } else {
+                    old.push_back(static_cast<int>(choice));
+                }
+            } else {
+                all = false;
+            }
+        }
+        if (all) {
+            ids.clear();
+            return;
+        }
+        std::sort(old.begin(), old.end());
+        for (int number : old) {
+            numbers += (numbers.empty() ? "" : ",") + std::to_string(number);
+        }
+        // (none but off: "0", which offers off alone; by name, off's id)
+        if (numbers.empty()) {
+            numbers = "0";
+        }
+        if (ById(feature) && ids.empty()) {
+            ids = feature.ids[0];
+        }
+    }
+
+    // Whether every name in a [menu] list by name is one of the feature's
+    bool KnownIds(const FeatureInfo &feature, const std::string &list) {
+        std::istringstream in(list);
+        for (std::string id; std::getline(in, id, ',');) {
+            if (ChoiceOfId(feature, Trimmed(id)) < 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool Exclusive(const FeatureInfo &a, const FeatureInfo &b) {
@@ -159,6 +291,15 @@ std::string FeatureListText(const std::vector<FeatureInfo> &features) {
         for (size_t i = 0; i < feature.choices.size(); i++) {
             text += (i ? "|" : "\t") + feature.choices[i];
         }
+        if (ById(feature)) {
+            for (size_t i = 0; i < feature.ids.size(); i++) {
+                text += (i ? "|" : "\t") + feature.ids[i];
+            }
+            text += "\t";
+            for (size_t i = 0; i < feature.numbered.size(); i++) {
+                text += (i ? "|" : "") + feature.numbered[i];
+            }
+        }
         text += "\n";
     }
     return text;
@@ -198,9 +339,50 @@ std::vector<FeatureInfo> ParseFeatureList(const std::string &text) {
                 feature.choices.push_back(part);
             }
         }
+        if (parts.size() > 6 && !parts[6].empty()) {
+            std::stringstream ids(parts[6]);
+            while (std::getline(ids, part, '|')) {
+                feature.ids.push_back(part);
+            }
+        }
+        if (parts.size() > 7 && !parts[7].empty()) {
+            // (every entry, an empty one too: a number that names none now)
+            for (size_t at = 0;;) {
+                const size_t bar = parts[7].find('|', at);
+                feature.numbered.push_back(parts[7].substr(at, bar == std::string::npos ? bar : bar - at));
+                if (bar == std::string::npos) {
+                    break;
+                }
+                at = bar + 1;
+            }
+        }
         features.push_back(feature);
     }
     return features;
+}
+
+std::string FeatureListNote(const std::string &note) {
+    std::string line = note;
+    for (char &c : line) {
+        if (c == '\t' || c == '\n' || c == '\r') {
+            c = ' ';
+        }
+    }
+    return "!note\t" + line + "\n";
+}
+
+std::string ParseFeatureListNote(const std::string &text) {
+    std::istringstream lines(text);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.rfind("!note\t", 0) == 0) {
+            return line.substr(6);
+        }
+    }
+    return "";
 }
 
 bool SettingOff(const std::string &value) {
@@ -226,25 +408,60 @@ std::vector<int> FeatureValues(const Ini &ini, const std::vector<FeatureInfo> &f
     return values;
 }
 
+bool FeatureChosen(const Ini &ini, const FeatureInfo &feature) {
+    return !(feature.flags & kFeatureSession) && HasValue(ini, feature);
+}
+
 void SetFeature(Ini &ini, const std::vector<FeatureInfo> &features, size_t index, int value) {
     if (index >= features.size() || (features[index].flags & kFeatureSession)) {
         return;
     }
+    MigrateFeatures(ini, features);
     if (Preset(ini) != "custom") {
         const std::vector<int> values = FeatureValues(ini, features);
         for (size_t i = 0; i < features.size(); i++) {
-            if (!(features[i].flags & kFeatureSession) && ini.get(kSection, features[i].name).empty()) {
-                ini.set(kSection, features[i].name, std::to_string(values[i]));
+            if (!(features[i].flags & kFeatureSession) && !HasValue(ini, features[i])) {
+                Write(ini, features[i], values[i]);
             }
         }
         ini.set(kSection, "preset", "custom");
     }
-    ini.set(kSection, features[index].name, std::to_string(value));
+    Write(ini, features[index], value);
     for (size_t i = 0; value && i < features.size(); i++) {
-        if (i != index && Exclusive(features[i], features[index]) && !SettingOff(ini.get(kSection, features[i].name))) {
-            ini.set(kSection, features[i].name, "0");
+        if (i == index || !Exclusive(features[i], features[index])) {
+            continue;
+        }
+        if (ById(features[i]) ? StoredChoice(ini, features[i]) != 0 : !SettingOff(ini.get(kSection, features[i].name))) {
+            Write(ini, features[i], 0);
         }
     }
+}
+
+bool MigrateFeatures(Ini &ini, const std::vector<FeatureInfo> &features) {
+    bool changed = false;
+    for (const FeatureInfo &feature : features) {
+        if (!ById(feature) || (feature.flags & kFeatureSession)) {
+            continue;
+        }
+        // The value: name_id from the number, or the number made to agree with name_id (an id it does not know left)
+        const std::string id = ini.get(kSection, IdKey(feature));
+        const std::string number = ini.get(kSection, feature.name);
+        if ((!id.empty() || !number.empty()) && (id.empty() || SettingOff(id) || ChoiceOfId(feature, id) >= 0)) {
+            const std::string &want = feature.ids[static_cast<size_t>(std::max(StoredChoice(ini, feature), 0))];
+            const int old = NumberOfId(feature, want);
+            changed |= Put(ini, kSection, IdKey(feature), want);
+            changed |= Put(ini, kSection, feature.name, old >= 0 ? std::to_string(old) : "");
+        }
+        // The choices its menu offers, the same way
+        const std::string ids = ini.get("menu", IdKey(feature));
+        if ((feature.flags & kFeatureMenuChoices) && (!ids.empty() || !ini.get("menu", feature.name).empty()) && KnownIds(feature, ids)) {
+            std::string byName, byNumber;
+            MenuTexts(feature, MenuChoices(ini, feature), byName, byNumber);
+            changed |= Put(ini, "menu", IdKey(feature), byName);
+            changed |= Put(ini, "menu", feature.name, byNumber);
+        }
+    }
+    return changed;
 }
 
 void SetPreset(Ini &ini, const std::vector<FeatureInfo> &features, const std::string &preset) {
@@ -254,23 +471,46 @@ void SetPreset(Ini &ini, const std::vector<FeatureInfo> &features, const std::st
             if (!ini.get(kSection, feature.name).empty()) {
                 ini.set(kSection, feature.name, ""); // (as the preset has it)
             }
+            if (ById(feature) && !ini.get(kSection, IdKey(feature)).empty()) {
+                ini.set(kSection, IdKey(feature), "");
+            }
         }
     }
 }
 
 std::vector<bool> MenuChoices(const Ini &ini, const FeatureInfo &feature) {
     std::vector<bool> offered(feature.choices.size(), true);
+    if (!(feature.flags & kFeatureMenuChoices)) {
+        return offered;
+    }
+    // (by name, a feature with ids: name_id; otherwise, or none, by number: name, in the old order for one with ids)
+    const std::string ids = ById(feature) ? ini.get("menu", IdKey(feature)) : "";
     const std::string list = ini.get("menu", feature.name);
-    if (!(feature.flags & kFeatureMenuChoices) || list.empty()) {
+    if (ids.empty() && list.empty()) {
         return offered;
     }
     std::fill(offered.begin(), offered.end(), false);
-    std::istringstream in(list);
-    for (std::string number; std::getline(in, number, ',');) {
-        char *end = nullptr;
-        const long choice = std::strtol(number.c_str(), &end, 10);
-        if (end != number.c_str() && choice > 0 && choice < static_cast<long>(offered.size())) {
-            offered[static_cast<size_t>(choice)] = true;
+    if (!ids.empty()) {
+        std::istringstream in(ids);
+        for (std::string id; std::getline(in, id, ',');) {
+            if (const int choice = ChoiceOfId(feature, Trimmed(id)); choice > 0) {
+                offered[static_cast<size_t>(choice)] = true;
+            }
+        }
+    } else {
+        std::istringstream in(list);
+        for (std::string number; std::getline(in, number, ',');) {
+            char *end = nullptr;
+            long choice = std::strtol(number.c_str(), &end, 10);
+            if (end == number.c_str()) {
+                continue;
+            }
+            if (ById(feature)) {
+                choice = ChoiceOfId(feature, IdOfNumber(feature, choice));
+            }
+            if (choice > 0 && choice < static_cast<long>(offered.size())) {
+                offered[static_cast<size_t>(choice)] = true;
+            }
         }
     }
     if (!offered.empty()) {
@@ -280,17 +520,12 @@ std::vector<bool> MenuChoices(const Ini &ini, const FeatureInfo &feature) {
 }
 
 void SetMenuChoices(Ini &ini, const FeatureInfo &feature, const std::vector<bool> &offered) {
-    std::string list;
-    bool all = true;
-    for (size_t choice = 1; choice < feature.choices.size(); choice++) {
-        if (choice < offered.size() && offered[choice]) {
-            list += (list.empty() ? "" : ",") + std::to_string(choice);
-        } else {
-            all = false;
-        }
+    std::string ids, numbers;
+    MenuTexts(feature, offered, ids, numbers);
+    if (ById(feature)) {
+        Put(ini, "menu", IdKey(feature), ids);
     }
-    // (none but off: "0", which offers off alone)
-    ini.set("menu", feature.name, all ? "" : list.empty() ? "0" : list);
+    ini.set("menu", feature.name, numbers);
 }
 
 } // namespace recomp

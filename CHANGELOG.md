@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Which controller is which player: the launcher's Controllers page gives each connected gamepad Automatic,
+  Player 1, Player 2 or Not used (recomp-common aac17cc, settings.ini's `[controllers]`), and the game hands its
+  gamepads to the players with `recomp::AssignPads`, again whenever one is connected or let go. A Steam Deck's own
+  controls can be Not used, so two gamepads plugged into it play each other. Nothing chosen: as before, in the
+  order they were connected. Start and Back together open the menu from a player's gamepad only.
 - The launcher's link to where the players talk: game.cfg's `community_url`, `community_title`, `community_detail`
   and `community_button` (a Discord invite, say) give a card on the Game page under Play (recomp-common a3983c5,
   `Description::community_url`; its words in Spanish and Portuguese too). The recomp-common copy also brings Reset

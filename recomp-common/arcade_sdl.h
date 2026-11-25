@@ -66,7 +66,36 @@ constexpr const char *kCompactDescription = "The in-game menu in small letters w
                                             "lines (a small window, an arcade monitor): a page's rows all shown at once, none running "
                                             "into the next. Off: compact only in full screen at an arcade resolution.";
 
-constexpr int kSuperTallLines = 240; // (a super resolution of 240p, where the card has none of the board's lines)
+// (the rest of the Arcade monitor page, arcade_screen.h: Make the mode at the board's rate, Monitor, Keep the board's pace)
+inline std::string SwitchresDescription(const ArcadeBoard &board) {
+    char rate[16];
+    snprintf(rate, sizeof rate, "%.3f", board.rate);
+    return "With " + ArcadeBoardName(board) + " or Super resolution: full screen makes that mode at exactly the board's " + rate +
+           " Hz with Switchres (CRT Emudriver, as GroovyMAME does) and switches the screen to it, so a game on the board's pace "
+           "never shows a frame twice, and synced to the screen it plays at the board's own speed. Back to the desktop's mode "
+           "when the game ends. If it can't, a mode the system lists, as without it. Set on the launcher.";
+}
+constexpr const char *kMonitorNames[] = {"Arcade 15 kHz", "Generic 15 kHz", "NTSC TV", "PAL TV", "Arcade 15/25 kHz", "Arcade 15/25/31 kHz",
+                                         "Arcade 31 kHz"};
+constexpr const char *kMonitorDescription = "The monitor whose ranges Switchres keeps to in making a mode (its presets): Arcade 15 kHz "
+                                            "for a standard-resolution arcade monitor; Generic 15 kHz for a TV or a consumer CRT; NTSC "
+                                            "and PAL TVs; the 15/25 kHz and 15/25/31 kHz tri-sync arcade monitors; 31 kHz VGA arcade "
+                                            "monitors. Choose the one the monitor is: a mode outside its ranges can harm it. Set on the "
+                                            "launcher.";
+inline std::string BoardPaceDescription(const ArcadeBoard &board) {
+    char rate[16];
+    snprintf(rate, sizeof rate, "%.2f", board.rate);
+    char fast[16];
+    snprintf(fast, sizeof fast, "%.1f", std::fabs(60.0 / board.rate - 1) * 100);
+    return std::string("In full screen at an arcade resolution the game is synced to the screen: one frame for each of its refreshes, "
+                       "each shown as it refreshes, so a mode that isn't exactly the board's ") +
+           rate + " Hz never shows a frame twice or tears; the game then runs at the screen's rate (" + fast +
+           "% off at 60 Hz, too little to notice). On: the board's own clock, each picture shown as soon as it's made, as "
+           "GroovyMAME does with a mode made at the exact rate. Online, always the board's pace.";
+}
+
+constexpr int kSuperTallLines = 240;
+constexpr int kSuperColumns = 2560; // (the super resolution Switchres makes) // (a super resolution of 240p, where the card has none of the board's lines)
 constexpr int kSuperLeastColumns = 1920;
 constexpr float kArcadeRateRoom = 5.0f; // (Hz either side of the board's)
 
@@ -136,6 +165,11 @@ inline void SetFullscreenMode(SDL_Window *window, ArcadeMode want, int screen, c
     if (want != ArcadeMode::Off && ArcadeModeOf(ChosenDisplay(screen), want, board, mode)) {
         if (!SDL_SetWindowFullscreenMode(window, &mode)) {
             fprintf(stderr, "full screen %dx%d at %.2f Hz: %s\n", mode.w, mode.h, mode.refresh_rate, SDL_GetError());
+        } else {
+            // (the mode as the system lists it: Windows rounds a mode's refresh to whole hertz, so the rate measured synced
+            // to the screen is the one to trust)
+            fprintf(stderr, "full screen: arcade mode %dx%d at %.3f Hz (%d/%d)\n", mode.w, mode.h, mode.refresh_rate,
+                    mode.refresh_rate_numerator, mode.refresh_rate_denominator);
         }
         return;
     }
@@ -158,7 +192,8 @@ inline void CentreOnScreen(SDL_Window *window, int screen) {
 }
 
 // Whether the window is full screen in a mode of its own (an arcade resolution): the picture then fills the screen,
-// whose shape the monitor gives it
+// whose shape the monitor gives it. (With Switchres, arcade_screen.h's ArcadeScreen::OnArcade, which also knows the
+// desktop in the mode Switchres made)
 inline bool OnArcadeMode(SDL_Window *window) {
     return window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) && SDL_GetWindowFullscreenMode(window);
 }

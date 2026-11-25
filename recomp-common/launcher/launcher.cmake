@@ -18,6 +18,10 @@
 #                                                   alone (no updates: an Android app) is shown and matched online
 #   LAUNCHER_ISSUES_REPO  owner/name                optional: where a player reports a game that stopped (GitHub
 #                                                   issues); LAUNCHER_UPDATE_REPO when not set
+#   LAUNCHER_MENU_BUTTON  guide                     optional: the gamepad's buttons that open the in-game menu until
+#                                                   the player chooses (src/menu_buttons.h: guide-stick, recomp-common's
+#                                                   own; guide; chord). Build the game with the same
+#                                                   RECOMP_MENU_BUTTON_DEFAULT, for when it is started on its own
 #
 # It makes the target `launcher` (the program <LAUNCHER_GAME_EXE>-launcher), to which the port may add its
 # own definitions, include folders and libraries. SDL3 is the system's or is built in; Dear ImGui and the
@@ -105,6 +109,9 @@ target_compile_definitions(launcher PRIVATE
     LAUNCHER_HOME_ENV="${LAUNCHER_HOME_ENV}" LAUNCHER_DISCLAIMER="${LAUNCHER_DISCLAIMER}")
 if(LAUNCHER_COLLECTION)
     target_compile_definitions(launcher PRIVATE LAUNCHER_COLLECTION=1)
+endif()
+if(LAUNCHER_MENU_BUTTON)
+    target_compile_definitions(launcher PRIVATE RECOMP_MENU_BUTTON_DEFAULT="${LAUNCHER_MENU_BUTTON}")
 endif()
 target_link_libraries(launcher PRIVATE launcher_imgui)
 if(ANDROID)

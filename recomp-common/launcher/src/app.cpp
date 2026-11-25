@@ -28,6 +28,7 @@
 #include "gamepads.h"
 #include "i18n.h"
 #include "layout.h"
+#include "menu_buttons.h"
 #include "online.h"
 #include "countries.h"
 #include "flags.h"
@@ -188,7 +189,7 @@ const launcher::Description& the_description() {
 // Who a game is, as the launcher keeps it: a port's one game, or one of a collection's.
 struct Target {
     const launcher::Description* about = nullptr;
-    std::string id, name, folder_name, exe, series, released, hardware, file_section = "game", video_section = "video"; // (folder_name: its folder's, a collection's game's)
+    std::string id, name, folder_name, exe, series, released, hardware, mod_of, file_section = "game", video_section = "video"; // (folder_name: its folder's, a collection's game's)
     std::filesystem::path folder;
 };
 
@@ -207,6 +208,7 @@ std::vector<Target> targets() {
             target.series = game.series ? game.series : "";
             target.released = game.released ? game.released : "";
             target.hardware = game.hardware ? game.hardware : "";
+            target.mod_of = game.mod_of ? game.mod_of : "";
             target.file_section = std::string("game.") + game.id;
             target.video_section = std::string("video.") + game.id;
             const char* own = game.home_env && *game.home_env ? std::getenv(game.home_env) : nullptr;
@@ -515,7 +517,9 @@ void use_language(const recomp::Ini& prefs) {
     }
     int count = 0;
     if (SDL_Locale** locales = SDL_GetPreferredLocales(&count)) {
-        for (int i = 0; i < count; i++) {
+        // (stop at the first empty entry: SDL 3.4 on macOS fits the system's list into 128 bytes and counts the
+        // languages that didn't fit, leaving their entries NULL, so 23 or so preferred languages crashed here)
+        for (int i = 0; i < count && locales[i]; i++) {
             std::string code = locales[i]->language ? locales[i]->language : "";
             if (locales[i]->country) {
                 code += std::string("-") + locales[i]->country;
@@ -535,6 +539,21 @@ void use_language(const recomp::Ini& prefs) {
     _putenv_s("RECOMP_LANGUAGE", language.c_str());
 #else
     setenv("RECOMP_LANGUAGE", language.c_str(), 1);
+#endif
+}
+
+// The gamepad's buttons that open the games' in-game menu (menu_buttons.h): launcher.ini's [launcher] menu_button, or
+// the port's own (RECOMP_MENU_BUTTON_DEFAULT; LAUNCHER_MENU_BUTTON). The games are told in RECOMP_MENU_BUTTON.
+static recomp::MenuButtons chosen_menu_buttons(const recomp::Ini& prefs) {
+    return recomp::ParseMenuButtons(prefs.get("launcher", "menu_button").c_str(), recomp::DefaultMenuButtons());
+}
+
+static void use_menu_buttons(const recomp::Ini& prefs) {
+    const char* key = recomp::MenuButtonsKey(chosen_menu_buttons(prefs));
+#ifdef _WIN32
+    _putenv_s("RECOMP_MENU_BUTTON", key);
+#else
+    setenv("RECOMP_MENU_BUTTON", key, 1);
 #endif
 }
 
@@ -559,6 +578,11 @@ int play_directly(const std::string& id, const std::vector<std::string>& extra) 
     recomp::Ini prefs(player_folder(LAUNCHER_GAME_NAME, LAUNCHER_HOME_ENV) / "launcher.ini");
     prefs.load();
     use_language(prefs);
+    use_menu_buttons(prefs);
+    if (the_description().own_shaders.feature) {
+        // (the player's own shader presets: the shared folder, made, and the game told of it)
+        recomp::shaders::Prepare(recomp::shaders::LauncherFolder(player_folder(LAUNCHER_GAME_NAME, LAUNCHER_HOME_ENV)));
+    }
     if (about.game_page && !about.check(prefs.get(target->file_section, about.file_key)).usable()) {
         say(SDL_MESSAGEBOX_INFORMATION, target->name, about.file_not_set_up);
         return 1;
@@ -653,6 +677,13 @@ App::App(SDL_Window* window)
       about_(the_description()) {
     prefs_.load();
     use_language(prefs_);
+    use_menu_buttons(prefs_);
+    // (the player's own shader presets: the shared folder, made now so the player can put them in before a game ever
+    // ran, and the games told of it)
+    if (about_.own_shaders.feature) {
+        own_shaders_ = recomp::shaders::LauncherFolder(folder_);
+        recomp::shaders::Prepare(own_shaders_);
+    }
     // (controllers SDL doesn't know: gamecontrollerdb.txt beside the launcher or in its folder, as the game reads it)
     recomp::AddGamepadMappings({program_folder_, folder_});
     for (const Target& target : targets()) {
@@ -664,10 +695,19 @@ App::App(SDL_Window* window)
         slot->series = target.series;
         slot->released = target.released;
         slot->hardware = target.hardware;
+        slot->mod_of = target.mod_of;
         slot->file_section = target.file_section;
         slot->video_section = target.video_section;
         slot->folder = target.folder;
         slots_.push_back(std::move(slot));
+    }
+    // (a mod is in the series of the game it is a mod of: its row is under that game's)
+    for (auto& slot : slots_) {
+        for (const auto& game : slots_) {
+            if (!slot->mod_of.empty() && game->id == slot->mod_of) {
+                slot->series = game->series;
+            }
+        }
     }
     load_order();
     for (size_t which = 0; which < slots_.size(); which++) {
@@ -708,6 +748,7 @@ App::App(SDL_Window* window)
         beside_wanted_ = beside_wanted_ || (one.about->game_page && one.about->find_beside);
     }
     find_shared();
+    give_shared();
     if (!collection_ && about_.game_page && (about_.open_on_game_page || about_.own_pages_after_game)) {
         page_ = place_of(Page::Game);
     }
@@ -720,6 +761,7 @@ App::App(SDL_Window* window)
         }
     }
     bindings_ = recomp::LoadBindings(slots_[first]->settings.path().u8string(), shared_table());
+    pad_choices_ = recomp::LoadPadChoices(slots_[first]->settings.path().u8string());
     // (and each game's own, for those given one)
     own_bindings_.resize(slots_.size());
     for (size_t which = 0; which < slots_.size(); which++) {
@@ -928,12 +970,17 @@ void App::set_page(const std::string& id) {
     if (id == "online" && collection_ && collection_->lobby) {
         page_ = 1;
     }
-    // (a game in a closed series: the series opened)
-    for (const std::vector<size_t>& unit : units()) {
-        for (size_t which : unit) {
-            if (grouped(unit) && slots_[which]->id == id && !series_open(slots_[which]->series)) {
-                open_series(slots_[which]->series, true);
-            }
+    // (a game in a closed series: the series opened; a mod: its game's mods too)
+    for (size_t which : titled()) {
+        if (slots_[which]->id != id) {
+            continue;
+        }
+        if (!slots_[which]->series.empty() && !series_open(slots_[which]->series)) {
+            open_series(slots_[which]->series, true);
+        }
+        size_t parent = mod_parent(which);
+        if (parent != std::string::npos && !mods_open(slots_[parent]->id)) {
+            open_mods(slots_[parent]->id, true);
         }
     }
     std::vector<Row> list = rows();
@@ -994,12 +1041,92 @@ void App::group_order() {
             std::copy_if(order_.begin(), order_.end(), std::back_inserter(grouped), same);
         }
     }
-    order_ = grouped;
+    // (a game's mods right after it, in the order they had: they move with it)
+    auto parent = [&](size_t which) {
+        const std::string& of = slots_[which]->mod_of;
+        auto at = std::find_if(grouped.begin(), grouped.end(), [&](size_t one) { return !of.empty() && slots_[one]->id == of; });
+        return at != grouped.end() && slots_[*at]->mod_of.empty() ? static_cast<long>(*at) : -1L;
+    };
+    order_.clear();
+    for (size_t which : grouped) {
+        if (parent(which) >= 0) {
+            continue;
+        }
+        order_.push_back(which);
+        for (size_t mod : grouped) {
+            if (parent(mod) == static_cast<long>(which)) {
+                order_.push_back(mod);
+            }
+        }
+    }
+}
+
+size_t App::mod_parent(size_t which) const {
+    const std::string& of = slots_[which]->mod_of;
+    if (of.empty()) {
+        return std::string::npos;
+    }
+    for (size_t one : titled()) {
+        if (slots_[one]->id == of && slots_[one]->mod_of.empty()) {
+            return one;
+        }
+    }
+    return std::string::npos;
+}
+
+std::vector<size_t> App::mods_of(size_t which) const {
+    std::vector<size_t> list;
+    for (size_t one : titled()) {
+        if (mod_parent(one) == which) {
+            list.push_back(one);
+        }
+    }
+    return list;
+}
+
+std::vector<size_t> App::with_mods(const std::vector<size_t>& list) const {
+    std::vector<size_t> all;
+    for (size_t which : list) {
+        all.push_back(which);
+        for (size_t mod : mods_of(which)) {
+            all.push_back(mod);
+        }
+    }
+    return all;
+}
+
+bool App::mods_open(const std::string& id) const {
+    std::stringstream ids(prefs_.get("games", "mods_open"));
+    for (std::string one; std::getline(ids, one, ',');) {
+        if (one == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void App::open_mods(const std::string& id, bool open) {
+    std::stringstream ids(prefs_.get("games", "mods_open"));
+    std::string kept;
+    for (std::string one; std::getline(ids, one, ',');) {
+        if (one != id && !one.empty()) {
+            kept += (kept.empty() ? "" : ",") + one;
+        }
+    }
+    if (open) {
+        kept += (kept.empty() ? "" : ",") + id;
+        opened_ = "mods:" + id;
+    }
+    prefs_.set("games", "mods_open", kept);
+    prefs_.save();
 }
 
 std::vector<std::vector<size_t>> App::units() const {
     std::vector<std::vector<size_t>> list;
     for (size_t which : titled()) {
+        if (mod_parent(which) != std::string::npos) {
+            continue;  // (under its game's row, and moved with it)
+        }
         const std::string& series = slots_[which]->series;
         if (!series.empty() && !list.empty() && slots_[list.back().front()]->series == series) {
             list.back().push_back(which);
@@ -1018,15 +1145,25 @@ bool App::grouped(const std::vector<size_t>& unit) const {
 
 std::vector<App::Row> App::rows() const {
     std::vector<Row> list;
+    // (a game's mods under its row, while it is open)
+    auto mods = [&](size_t which) {
+        if (mods_open(slots_[which]->id)) {
+            for (size_t mod : mods_of(which)) {
+                list.push_back({mod, false, true, true});
+            }
+        }
+    };
     for (const std::vector<size_t>& unit : units()) {
         if (!grouped(unit)) {
             list.push_back({unit.front()});
+            mods(unit.front());
             continue;
         }
         list.push_back({unit.front(), true});
         if (series_open(slots_[unit.front()]->series)) {
             for (size_t which : unit) {
                 list.push_back({which, false, true});
+                mods(which);
             }
         }
     }
@@ -1074,6 +1211,9 @@ void App::keep_page(const std::function<void()>& change) {
                                          : !row.series && row.game == which;
         // (a game of a series that has closed: the series)
         bool closed = kind == Page::Title && row.series && slots_[row.game]->series == slots_[which]->series;
+        // (a mod whose game's row has closed: that game)
+        closed = closed || (kind == Page::Title && !row.series && !row.mod && !slots_[which]->mod_of.empty() &&
+                            slots_[row.game]->id == slots_[which]->mod_of);
         if (same || closed) {
             page_ = fixed_pages() + static_cast<int>(i);
             if (same) {
@@ -1126,7 +1266,7 @@ void App::move_game(size_t which, int place) {
         for (const std::vector<size_t>& one : list) {
             flat.insert(flat.end(), one.begin(), one.end());
         }
-        reorder(flat);
+        reorder(with_mods(flat));
         return;
     }
 }
@@ -1147,7 +1287,7 @@ void App::move_unit(size_t unit, int place) {
     for (const std::vector<size_t>& one : list) {
         flat.insert(flat.end(), one.begin(), one.end());
     }
-    reorder(flat);
+    reorder(with_mods(flat));
 }
 
 // The launcher's own page at a place in the sidebar (a port's pages come first), or Page::Count; for a
@@ -1563,6 +1703,7 @@ void App::play(size_t which, const std::vector<std::string>& extra) {
     std::filesystem::create_directories(one.folder / "logs", error);
     one.settings.save();
     one.values_before = recomp::FeatureValues(one.settings, one.features);
+    one.own_shader_before = recomp::shaders::Chosen(one.settings);
     Target target;
     target.about = one.about;
     target.file_section = one.file_section;
@@ -1636,11 +1777,18 @@ std::vector<bool> App::hidden_choices(const Slot& one, size_t feature) {
 void App::load_features(Slot& one) {
     one.features.clear();
     one.features_error.clear();
+    one.program_note.clear();
     if (!one.has_program()) {
         one.features_error = "The game program wasn't found next to the launcher.";
         return;
     }
-    one.features = recomp::ParseFeatureList(GameProcess::output_of(one.program(), {"--list-features"}));
+    const std::string list = GameProcess::output_of(one.program(), {"--list-features"});
+    one.features = recomp::ParseFeatureList(list);
+    one.program_note = recomp::ParseFeatureListNote(list); // (a build with no translated code, say: settings.h)
+    // (a file from before a feature was kept by name: made over once, settings.h)
+    if (recomp::MigrateFeatures(one.settings, one.features)) {
+        one.settings.save();
+    }
 }
 
 // A collection's features that more than one of its games (those here) has, by the same name and with the same
@@ -1668,6 +1816,46 @@ void App::find_shared() {
         }
     }
     shared_.erase(std::remove_if(shared_.begin(), shared_.end(), [](const Shared& s) { return s.where.size() < 2; }), shared_.end());
+}
+
+// A game new to the collection (a mod, or a game an update added) has none of the shared features' values the player
+// chose on the Features page, which wrote them only to the games there were then: its VSync, its shader and the rest
+// were its own defaults while the page showed the others'. Each shared feature it has no value of its own for takes
+// the one the games that have chosen it agree on. (A choice of its own, or games that differ, is left as it is.)
+void App::give_shared() {
+    // (all found before any is set: setting one makes the game's preset custom, which writes down its other values)
+    struct Gift {
+        size_t which, feature;
+        int value;
+    };
+    std::vector<Gift> gifts;
+    for (const Shared& shared : shared_) {
+        int agreed = -1;
+        bool differ = false;
+        std::vector<std::pair<size_t, size_t>> unchosen;
+        for (const auto& [which, feature] : shared.where) {
+            const Slot& one = *slots_[which];
+            if (!recomp::FeatureChosen(one.settings, one.features[feature])) {
+                unchosen.push_back({which, feature});
+                continue;
+            }
+            const int value = recomp::FeatureValues(one.settings, one.features)[feature];
+            differ = differ || (agreed >= 0 && value != agreed);
+            agreed = value;
+        }
+        if (agreed < 0 || differ) {
+            continue;
+        }
+        for (const auto& [which, feature] : unchosen) {
+            const Slot& one = *slots_[which];
+            if (recomp::FeatureValues(one.settings, one.features)[feature] != agreed) {
+                gifts.push_back({which, feature, agreed});
+            }
+        }
+    }
+    for (const Gift& gift : gifts) {
+        set_feature(*slots_[gift.which], gift.feature, gift.value);
+    }
 }
 
 void App::set_preset(const std::string& name) {
@@ -1738,6 +1926,29 @@ void App::after_game(Slot& one) {
     }
     one.pending.clear();
     one.values_before.clear();
+    // (its own shader preset, as its features: chosen in its menu, it is the others' too)
+    if (about_.own_shaders.feature) {
+        const std::string chosen = recomp::shaders::Chosen(one.settings);
+        if (chosen != one.own_shader_before) {
+            for (auto& other : slots_) {
+                if (other.get() == &one || std::none_of(other->features.begin(), other->features.end(),
+                                                        [&](const recomp::FeatureInfo& f) { return own_shader_feature(f); })) {
+                    continue;
+                }
+                if (other->game.running()) {
+                    other->pending_own = chosen;
+                    other->has_pending_own = true;
+                } else if (recomp::shaders::Chosen(other->settings) != chosen) {
+                    recomp::shaders::Choose(other->settings, chosen);
+                    other->settings.save();
+                }
+            }
+        } else if (one.has_pending_own && chosen != one.pending_own) {
+            recomp::shaders::Choose(one.settings, one.pending_own);
+            one.settings.save();
+        }
+        one.has_pending_own = false;
+    }
 }
 
 // ---- frame -------------------------------------------------------------------------------
@@ -2065,7 +2276,7 @@ void App::sidebar(float height) {
             drag_row = i;
         }
     }
-    if (drag_row >= 0 && list[drag_row].inside) {
+    if (drag_row >= 0 && list[drag_row].inside && !slots_[list[drag_row].game]->series.empty()) {
         const std::string& series = slots_[list[drag_row].game]->series;
         for (first_row = drag_row; first_row > 0 && list[first_row - 1].inside && slots_[list[first_row - 1].game]->series == series; first_row--) {
         }
@@ -2095,7 +2306,10 @@ void App::sidebar(float height) {
     int move_to = -1;
     std::string toggle;       // (a series' row pressed: it opens or closes)
     std::string close_drag;   // (a series' row taken hold of while open: it closes)
+    std::string toggle_mods;  // (a game's row with mods pressed: they open or close)
+    std::string close_mods;   // (such a row taken hold of while open: they close)
     float series_y = 0.0f;    // (the last series' row's place: its games' rows come out from under it)
+    float game_y = 0.0f;      // (the last game's row's place: its mods' rows come out from under it)
     focus_row_ = -1;
     for (int i = 0; i < count; i++) {
         size_t which = 0;
@@ -2109,9 +2323,14 @@ void App::sidebar(float height) {
             ImGuiID place = ImGui::GetID("place");
             if (row->series) {
                 series_y = y;
+            } else if (!row->mod) {
+                game_y = y;
             }
-            if (row->inside && opened_ == slots_[which]->series) {
+            if (row->inside && !row->mod && opened_ == slots_[which]->series) {
                 ui::set_value(place, series_y);
+            }
+            if (row->mod && (opened_ == "mods:" + slots_[which]->mod_of || opened_ == slots_[which]->series)) {
+                ui::set_value(place, opened_ == slots_[which]->series ? series_y : game_y);
             }
             if (k == drag_row) {
                 ui::set_value(place, drag_at);
@@ -2129,12 +2348,27 @@ void App::sidebar(float height) {
                            : !row     ? own[static_cast<int>(kind)]
                            : row->series ? slots_[which]->series.c_str()
                                          : slots_[which]->name.c_str();
-        int fold = row && row->series ? (series_open(slots_[which]->series) ? 1 : 0) : -1;
+        // (a mod's row under its game's: what its name has past the game's, "CSL Edition", where it begins with it)
+        std::string mod_name;
+        if (row && row->mod) {
+            const std::string& game = slots_[mod_parent(which)]->name;
+            const std::string& own_name = slots_[which]->name;
+            if (own_name.size() > game.size() + 1 && own_name.compare(0, game.size(), game) == 0 && own_name[game.size()] == ' ') {
+                mod_name = own_name.substr(game.size() + 1);
+                name = mod_name.c_str();
+            }
+        }
+        // (a game with mods: its row opens and closes as a series' does)
+        const bool has_mods = row && !row->series && !row->mod && !mods_of(which).empty();
+        int fold = row && row->series ? (series_open(slots_[which]->series) ? 1 : 0) : has_mods ? (mods_open(slots_[which]->id) ? 1 : 0) : -1;
         bool was_dropped = row && static_cast<int>(which) == dropped && row->series == dropped_series;
-        if (ui::nav_item(name, shown == i, inner, in_sidebar_ || shown == i, row && row->inside ? 14.0f : 0.0f, fold) && !was_dropped) {
+        float indent = !row || !row->inside ? 0.0f : row->mod && !slots_[which]->series.empty() ? 28.0f : 14.0f;
+        if (ui::nav_item(name, shown == i, inner, in_sidebar_ || shown == i, indent, fold) && !was_dropped) {
             page_ = i;
             if (row && row->series) {
                 toggle = slots_[which]->series;
+            } else if (has_mods) {
+                toggle_mods = slots_[which]->id;
             }
         }
         if (kind == Page::Library && update_news()) {
@@ -2142,13 +2376,15 @@ void App::sidebar(float height) {
             const ImVec2 at(ImGui::GetItemRectMax().x - px(18), (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f);
             ImGui::GetWindowDrawList()->AddCircleFilled(at, px(4), ui::palette().accent);
         }
-        if (row && games > 1 && ImGui::IsItemActive()) {
+        if (row && !row->mod && games > 1 && ImGui::IsItemActive()) {  // (a mod's row moves with its game's)
             if (dragging_ < 0 && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
                 dragging_ = static_cast<int>(which);
                 dragging_series_ = row->series;
                 drag_grab_ = ImGui::GetIO().MouseClickedPos[ImGuiMouseButton_Left].y - origin.y - y;
-                if (fold == 1) {
+                if (fold == 1 && row->series) {
                     close_drag = slots_[which]->series;
+                } else if (fold == 1) {
+                    close_mods = slots_[which]->id;
                 }
             }
             if (row && k == drag_row) {
@@ -2182,7 +2418,12 @@ void App::sidebar(float height) {
     }
     if (move_to >= 0 && drag_row >= 0) {
         if (list[drag_row].inside) {
-            move_game(list[drag_row].game, move_to - first_row);
+            // (its place among its series' games: the mods' rows between are not places)
+            int place = 0;
+            for (int r = first_row; r < move_to && r <= last_row; r++) {
+                place += list[r].mod ? 0 : 1;
+            }
+            move_game(list[drag_row].game, place);
         } else {
             // (past the places it is over: a series' rows are passed once the dragged row is over its last, going down,
             // or its first, going up)
@@ -2216,6 +2457,13 @@ void App::sidebar(float height) {
     if (!toggle.empty()) {
         bool open = !series_open(toggle);
         keep_page([&] { open_series(toggle, open); });
+    }
+    if (!close_mods.empty()) {
+        keep_page([&] { open_mods(close_mods, false); });
+    }
+    if (!toggle_mods.empty()) {
+        bool open = !mods_open(toggle_mods);
+        keep_page([&] { open_mods(toggle_mods, open); });
     }
     in_sidebar_ = in_sidebar;
     focus_seen_ = focused;
@@ -2475,6 +2723,10 @@ bool App::play_button(size_t which, float width) {
                !(collection_ && std::any_of(collection_->multi.begin(), collection_->multi.end(),
                                             [&](const launcher::MultiMode& m) { return m.next_code == one.game.exit_code(); }))) {
         stopped_note(one, width);
+    }
+    if (have_program && !one.program_note.empty()) {
+        ui::gap(10);
+        ui::text(one.program_note.c_str(), Font::Regular, ui::size::kDetail, p.danger, width);
     }
     return ready;
 }
@@ -3541,8 +3793,44 @@ void App::room_card(float width, const std::vector<size_t>& playable) {
             detail = std::string(Tr(launcher::kCountryFlags[country].name)) + (detail.empty() ? "" : " · " + detail);
         }
         const launcher::Online* online = which < slots_.size() ? &slots_[which]->about->online : nullptr;
+        // (a collection's: the games they have, those this player can play too first and marked, so as to know what to
+        // invite them to)
+        std::vector<ui::Piece> theirs;
+        size_t both = 0;
+        if (collection_ && !player.games.empty()) {
+            std::vector<ui::Piece> others;
+            for (const std::string& id : player.games) {
+                std::string name = id;
+                bool mine = false;
+                for (size_t slot = 0; slot < slots_.size(); slot++) {
+                    if (room_game(slot) == id) {
+                        name = slots_[slot]->name;
+                        mine = std::find(playable.begin(), playable.end(), slot) != playable.end();
+                        break;
+                    }
+                }
+                (mine ? theirs : others).push_back({name, mine});
+            }
+            both = theirs.size();
+            const auto by_name = [](const ui::Piece& a, const ui::Piece& b) { return a.text < b.text; };
+            std::sort(theirs.begin(), theirs.end(), by_name);
+            std::sort(others.begin(), others.end(), by_name);
+            theirs.insert(theirs.end(), others.begin(), others.end());
+        }
+        const auto their_games = [&](float text_width) {
+            if (theirs.empty()) {
+                return;
+            }
+            const ui::Palette& p = ui::palette();
+            ui::gap(6);
+            const std::string count = both == 0 ? TrFormat("Their games ({}): none you have too", {std::to_string(theirs.size())})
+                                                : TrFormat("Their games ({}), the {} you both have first:", {std::to_string(theirs.size()), std::to_string(both)});
+            ui::text(count.c_str(), ui::Font::Regular, ui::size::kDetail, p.secondary, text_width);
+            ui::gap(2);
+            ui::pieces(theirs, ", ", ui::size::kDetail, p.secondary, p.accent, text_width);
+        };
         ImGui::PushID(static_cast<int>(n));
-        row(width, player.name.c_str(), detail.c_str(), 284.0f, 36.0f, [&] {
+        layout::row_more(width, player.name.c_str(), detail.c_str(), 284.0f, 36.0f, [&] {
             // (their flag before the buttons: 30 points wide, then 14 of room; the space kept when they have none)
             const ImVec2 at = ImGui::GetCursorScreenPos();
             ImGui::SetCursorScreenPos(ImVec2(at.x, at.y + px(7)));
@@ -3555,7 +3843,7 @@ void App::room_card(float width, const std::vector<size_t>& playable) {
             if (ui::button("Block", Kind::Secondary, 100.0f)) {
                 block(player.id);
             }
-        });
+        }, their_games);
         ImGui::PopID();
     }
     if (collection_) {
@@ -3854,6 +4142,9 @@ void App::library_page(float width) {
         }
         bool usable = !one.checking && !one.file_path.empty() && file.usable();
         std::string status = one.checking ? std::string("Checking…") : one.file_path.empty() ? std::string(one.about->file_empty) : file.message;
+        if (!one.program_note.empty()) {
+            status += "  ·  " + one.program_note; // (what the program says of itself: its row shows it)
+        }
         ImGui::PushID(static_cast<int>(which));
         ImVec2 row_top = ImGui::GetCursorScreenPos();
         // (Play first, so that the ring coming into the row from the left is on it)
@@ -4128,7 +4419,8 @@ void App::title_page(size_t which, float width) {
             list.push_back(unit.front());
         }
     }
-    if (list.size() > 1) {
+    // (a mod has no place of its own: it is under its game's row, and moves with it)
+    if (list.size() > 1 && mod_parent(which) == std::string::npos) {
         int place = static_cast<int>(std::find(list.begin(), list.end(), which) - list.begin());
         ui::gap(36);
         ui::text("YOUR GAMES", Font::Semibold, ui::size::kDetail, p.secondary);
@@ -4170,6 +4462,7 @@ void App::title_page(size_t which, float width) {
             rows.push_back({&one.features[i], values[i], "", i, hidden_choices(one, i)});
         }
     }
+    own_shader_slots_ = {&one};
     feature_list(
         width, rows, "Nothing of its own: every feature it has is on the Features page.",
         [&](const FeatureRow& feature, int value) { set_feature(one, feature.index, value); },
@@ -4185,7 +4478,7 @@ void App::series_page(size_t which, float width) {
     while (unit + 1 < places.size() && slots_[places[unit].front()]->series != series) {
         unit++;
     }
-    const std::vector<size_t> games = places[unit];
+    const std::vector<size_t> games = with_mods(places[unit]);  // (each game's mods after it)
     std::string intro = TrFormat("{} of your games are {} games. Play one here, or go to its page for its ROM set, its Display switches and "
                                  "what only it has.",
                                  {std::to_string(games.size()), series});
@@ -4202,6 +4495,10 @@ void App::series_page(size_t which, float width) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             status = one.file.message;
+        }
+        const size_t parent = mod_parent(games[i]);
+        if (parent != std::string::npos) {
+            status = TrFormat("A mod of {}.", {slots_[parent]->name}) + (status.empty() ? "" : " " + status);
         }
         row(width, one.name.c_str(), status.c_str(), 230.0f, 36.0f, [&] {
             if (ui::button(one.game.running() ? "Playing…" : "Play", Kind::Primary, 110.0f, can_play(games[i]))) {
@@ -4702,6 +4999,7 @@ void App::features_page(float width) {
             }
             rows.push_back({&one.features[i], values[i], "", i, hidden_choices(one, i)});
         }
+        own_shader_slots_ = {&one};
         feature_list(
             width, rows, "No optional features yet.", [&](const FeatureRow& feature, int value) { set_feature(one, feature.index, value); },
             [&](const FeatureRow& feature) { return recomp::MenuChoices(one.settings, one.features[feature.index]); },
@@ -4746,6 +5044,15 @@ void App::features_page(float width) {
             note += std::string(note.empty() ? "" : " ") + Tr("Not the same in every game yet: what you choose here is.");
         }
         rows.push_back({&shared.info, value, note, i, hidden_choices(*slots_[where[0].first], where[0].second)});
+    }
+    // (the player's own shader preset: set for every game that has the feature, shown as the first has it)
+    own_shader_slots_.clear();
+    for (const Shared& shared : shared_) {
+        if (own_shader_feature(shared.info)) {
+            for (const auto& at : shared.where) {
+                own_shader_slots_.push_back(slots_[at.first].get());
+            }
+        }
     }
     // (the menu's choices: as the first game that has the feature has them, and set for every one)
     feature_list(
@@ -4807,7 +5114,14 @@ template <typename Set, typename Offered, typename SetOffered>
 void App::feature_row(float width, const FeatureRow& feature, Set set, Offered offered, SetOffered set_offered) {
     const recomp::FeatureInfo& info = *feature.info;
     ImGui::PushID(info.name.c_str());
-    std::string detail = feature.note.empty() ? info.description : info.description + " " + feature.note;
+    // (in the player's language before anything is put after it: the whole is not in the tables)
+    std::string detail = Tr(info.description);
+    if (!feature.note.empty()) {
+        detail += " " + feature.note;
+    }
+    if (own_shader_feature(info)) {
+        detail += std::string(" ") + Tr("Your own presets: see Shaders folder below.");  // (its path is there, once)
+    }
     if (info.choices.empty()) {
         bool on = feature.value != 0;
         row(width, info.title.c_str(), detail.c_str(), 42.0f, 24.0f, [&] {
@@ -4833,10 +5147,84 @@ void App::feature_row(float width, const FeatureRow& feature, Set set, Offered o
                 set(feature, numbers[static_cast<size_t>(at)]);
             }
         });
+        if (own_shader_feature(info)) {
+            own_shader_rows(width, feature, [&](int value) { set(feature, value); });
+        }
         if (info.flags & recomp::kFeatureMenuChoices) {
             menu_choices(width, feature, offered(feature), [&](const std::vector<bool>& to) { set_offered(feature, to); });
         }
     }
+    ImGui::PopID();
+}
+
+// ---- the player's own shader presets (own_shaders.h) ---------------------------------------
+
+bool App::own_shader_feature(const recomp::FeatureInfo& info) const {
+    const launcher::OwnShaders& own = about_.own_shaders;
+    return own.feature && !own_shaders_.empty() && info.name == own.feature && own.choice > 0 &&
+           own.choice < static_cast<int>(info.choices.size());
+}
+
+void App::set_own_shader(const std::string& name) {
+    for (Slot* one : own_shader_slots_) {
+        recomp::shaders::Choose(one->settings, name);
+        one->settings.save();
+    }
+}
+
+// Under the feature's row: Your own preset (the presets in the shared folder, built anew as it changes: chosen, the
+// feature's own choice is chosen too), and the folder's row with its path and Open shaders folder
+void App::own_shader_rows(float width, const FeatureRow& feature, const std::function<void(int)>& set_choice) {
+    namespace shaders = recomp::shaders;
+    const auto now = std::chrono::steady_clock::now();
+    if (own_looked_ == std::chrono::steady_clock::time_point{} || now - own_looked_ > std::chrono::seconds(2)) {
+        own_found_ = shaders::Scan(own_shaders_);
+        own_looked_ = now;
+    }
+    const std::string chosen = own_shader_slots_.empty() ? std::string() : shaders::Chosen(own_shader_slots_.front()->settings);
+    const shaders::Choices list = shaders::MakeChoices(own_found_, chosen);
+    const bool differ = std::any_of(own_shader_slots_.begin(), own_shader_slots_.end(),
+                                    [&](const Slot* one) { return shaders::Chosen(one->settings) != chosen; });
+    ImGui::PushID("own shaders");
+    inset_separator(width);
+    std::string detail =
+        own_found_.empty()
+            ? Tr("None yet. Put a .slangp preset in the shaders folder below with the files it uses beside it (a RetroArch shader "
+                 "pack can go in whole, in a folder of its own), and choose it here. Until then, Your own draws without one.")
+            : Tr("What Your own draws with: a .slangp preset in the shaders folder below or a folder in it. Choosing one chooses Your "
+                 "own. A game's own shaders folder, beside its settings, comes first in its menu, and its preset of the same name is "
+                 "used instead.");
+    if (differ) {
+        detail += std::string(" ") + Tr("Not the same in every game yet: what you choose here is.");
+    }
+    int at = list.IndexOf(chosen);
+    row(width, "Your own preset", detail.c_str(), 190.0f, 36.0f, [&] {
+        if (ui::dropdown("##own preset", list.labels, at, 190.0f)) {
+            set_own_shader(list.NameAt(at));
+            if (feature.value != about_.own_shaders.choice) {
+                set_choice(about_.own_shaders.choice);
+            }
+            own_looked_ = {};  // (looked at again)
+        }
+    });
+    inset_separator(width);
+#ifdef __ANDROID__
+    // (no file manager reaches the app's own folder from the phone, and no import here: a computer over USB can)
+    const std::string where =
+        TrFormat("{}. One folder for every game, left alone by updates. On Android it is in the app's own storage: the phone's file "
+                 "manager usually can't open it, a computer connected over USB usually can (Android/data). There is no import here yet.",
+                 {own_shaders_.u8string()});
+    row(width, "Shaders folder", where.c_str(), 0.0f, 0.0f, [] {});
+#else
+    const std::string where = TrFormat("{}. One folder for every game, left alone by updates.", {own_shaders_.u8string()});
+    row(width, "Shaders folder", where.c_str(), 190.0f, 36.0f, [&] {
+        if (ui::button("Open shaders folder", Kind::Secondary, 190.0f)) {
+            std::error_code error;
+            std::filesystem::create_directories(own_shaders_, error);  // (taken away since the launcher started)
+            SDL_OpenURL(file_url(own_shaders_).c_str());
+        }
+    });
+#endif
     ImGui::PopID();
 }
 
@@ -5099,27 +5487,86 @@ bool App::capture(const SDL_Event& event) {
     return false;
 }
 
+// A gamepad made a player's (or nobody's, or automatic), in every game's settings.ini. Another one chosen for the
+// same player before goes back to automatic, so a player is never given two.
+void App::choose_pad_player(const std::string& identity, int player) {
+    for (auto& [other, theirs] : pad_choices_.player) {
+        if (player >= 0 && other != identity && theirs == player) {
+            theirs = recomp::kPadAuto;
+        }
+    }
+    pad_choices_.player[identity] = player;
+    for (const auto& slot : slots_) {
+        for (const auto& [other, theirs] : pad_choices_.player) {
+            slot->settings.set(recomp::kPadPlayersSection, other, recomp::PadChoiceText(theirs));
+        }
+        slot->settings.save();
+    }
+}
+
 void App::controllers_page(float width) {
     const ui::Palette& p = ui::palette();
-    layout::heading("Controllers", "The keyboard always works. Gamepads show up here when connected; press buttons and move the sticks to check they work.",
-            width);
+    const int players = shared_table().count > 0 ? shared_table().players : 0;
+    layout::heading("Controllers",
+                    players > 0 ? "The keyboard always works. Gamepads show up here when connected; press buttons and move the sticks to check they "
+                                  "work, and choose which player each one is."
+                                : "The keyboard always works. Gamepads show up here when connected; press buttons and move the sticks to check they work.",
+                    width);
 
     int count = 0;
     SDL_JoystickID* pads = SDL_GetGamepads(&count);
+    int whose[recomp::kBindMaxPlayers];  // (each player's, as the game will give them out)
+    recomp::AssignPads(pad_choices_, pads, count, players, whose);
     ui::text("CONNECTED", Font::Semibold, ui::size::kDetail, p.secondary);
     ui::gap(10);
     Card card(width);
     if (count == 0) {
         row(width, "No controllers connected", "", 0.0f, 0.0f, [] {});
     }
-    for (int i = 0; i < count && i < 4; i++) {
+    // (the choices: Automatic, Player 1 to the last, Not used)
+    std::vector<std::string> choices = {Tr("Automatic")};
+    for (int player = 0; player < players; player++) {
+        choices.push_back(Tr("Player " + std::to_string(player + 1)));
+    }
+    choices.push_back(Tr("Not used"));
+    for (int i = 0; i < count && i < 8; i++) {
         if (i > 0) {
             inset_separator(width);
         }
         const char* name = SDL_GetGamepadNameForID(pads[i]);
-        std::string slot = "Controller " + std::to_string(i + 1);
+        std::string slot = Tr("Controller " + std::to_string(i + 1));
+        if (players > 0) {
+            int plays = -1;
+            for (int player = 0; player < players; player++) {
+                plays = whose[player] == i ? player : plays;
+            }
+            slot += "  ·  ";
+            slot += plays >= 0 ? Tr("Player " + std::to_string(plays + 1)) : Tr("plays nothing");
+        }
+        // (a button held on it says so, to tell two of the same gamepad apart)
+        if (std::find(opened_pads_.begin(), opened_pads_.end(), pads[i]) == opened_pads_.end() && SDL_OpenGamepad(pads[i])) {
+            opened_pads_.push_back(pads[i]);  // (stays open while the launcher runs)
+        }
+        if (SDL_Gamepad* open = SDL_GetGamepadFromID(pads[i])) {
+            bool held = false;
+            for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT && !held; b++) {
+                held = SDL_GetGamepadButton(open, static_cast<SDL_GamepadButton>(b));
+            }
+            slot += held ? std::string("  ·  ") + Tr("button pressed") : "";
+            ui::request_frames(2);  // (kept live)
+        }
         ImGui::PushID(i);
-        row(width, name ? name : "?", slot.c_str(), 110.0f, 36.0f, [&] {
+        const float control = players > 0 ? 300.0f : 110.0f;
+        row(width, name ? name : "?", slot.c_str(), control, 36.0f, [&] {
+            if (players > 0) {
+                const std::string identity = recomp::PadIdentity(pads[i]);
+                const int chosen = pad_choices_.of(identity);
+                int index = chosen == recomp::kPadNobody ? players + 1 : chosen >= 0 && chosen < players ? chosen + 1 : 0;
+                if (ui::dropdown("##player", choices, index, 180.0f)) {
+                    choose_pad_player(identity, index == 0 ? recomp::kPadAuto : index > players ? recomp::kPadNobody : index - 1);
+                }
+                ImGui::SameLine(0.0f, px(10));
+            }
             if (ui::button(selected_pad_ == i ? "Testing" : "Test", selected_pad_ == i ? Kind::Primary : Kind::Secondary, 110.0f)) {
                 selected_pad_ = i;
             }
@@ -5127,6 +5574,12 @@ void App::controllers_page(float width) {
         ImGui::PopID();
     }
     card.end();
+    if (players > 0 && count > 0) {
+        ui::gap(8);
+        ui::text("Automatic: the first player without a gamepad, in the order they were connected. Not used: it plays nothing (a Steam "
+                 "Deck's own controls, say, so two gamepads plugged into it play each other).",
+                 Font::Regular, ui::size::kDetail, p.secondary, width);
+    }
     ui::gap(24);
 
     if (count > 0) {
@@ -5157,6 +5610,32 @@ void App::controllers_page(float width) {
         }
     }
     SDL_free(pads);
+
+    // Which of a gamepad's buttons open the in-game menu (menu_buttons.h), in every game: Start and Select together
+    // always do (Steam often takes Guide), and the keyboard's Esc and F1 are not this choice's
+    ui::text("IN-GAME MENU", Font::Semibold, ui::size::kDetail, p.secondary);
+    ui::gap(10);
+    {
+        Card menu(width);
+        std::vector<std::string> names;
+        int index = 0;
+        const recomp::MenuButtons chosen = chosen_menu_buttons(prefs_);
+        for (const recomp::MenuButtonsChoice& choice : recomp::kMenuButtonsChoices) {
+            index = choice.value == chosen ? static_cast<int>(names.size()) : index;
+            names.push_back(choice.name);
+        }
+        row(width, "Menu button",
+            "The gamepad buttons that open the in-game menu. Start and Select together always do; Esc and F1 on the keyboard too.",
+            300.0f, 36.0f, [&] {
+                if (ui::dropdown("##menu-button", names, index, 300.0f)) {
+                    prefs_.set("launcher", "menu_button", recomp::kMenuButtonsChoices[static_cast<size_t>(index)].key);
+                    prefs_.save();
+                    use_menu_buttons(prefs_);
+                }
+            });
+        menu.end();
+    }
+    ui::gap(24);
 
     if (bind_slot_ >= static_cast<int>(slots_.size()) || (bind_slot_ >= 0 && !slots_[static_cast<size_t>(bind_slot_)]->has_program())) {
         bind_slot_ = -1;
@@ -5263,10 +5742,10 @@ void App::controllers_page(float width) {
             ui::gap(10);
             constexpr float kChip = 170.0f, kChipGap = 10.0f;
             Card buttons(width);
-            static const char* const kNth[recomp::kBindMaxPlayers] = {"first", "second", "third", "fourth"};
             const std::string whose = "Player " + std::to_string(bind_player_ + 1);
-            const std::string what = TrFormat("The keyboard and the {} gamepad. Click a button here, then press the key or the gamepad button for it.",
-                                              {Tr(kNth[bind_player_])});
+            const std::string what = TrFormat("The keyboard and player {}'s gamepad (Connected, above). Click a button here, then press the key or "
+                                              "the gamepad button for it.",
+                                              {std::to_string(bind_player_ + 1)});
             row(width, table.players < 2 ? "Buttons" : whose.c_str(),
                 table.players < 2 ? "The keyboard and the gamepad. Click a button here, then press the key or the gamepad button for it."
                                   : what.c_str(),

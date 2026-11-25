@@ -11,9 +11,10 @@
 //
 //   bc = none           a game's combined buttons (game.cfg's `combos`): several Saturn buttons at once
 //
-// (and [keyboard2], [gamepad2] for player 2). What is not in the file is as the usual layout has it. The
-// first gamepad is player 1's and the second player 2's; a gamepad's left stick always works as the
-// directions.
+// (and [keyboard2], [gamepad2] for player 2). What is not in the file is as the usual layout has it. Which
+// gamepad is whose is [controllers] (the launcher's Controllers page; recomp-common bindings.h, AssignPads):
+// without it, the first connected is player 1's and the second player 2's. A gamepad's left stick always works
+// as the directions.
 #pragma once
 
 #include <SDL3/SDL.h>

@@ -260,7 +260,13 @@ int RunWindowed(Port &port) {
         }
     }
 
-    std::vector<SDL_Gamepad *> gamepads;
+    std::vector<SDL_Gamepad *> gamepads; // (open, in the order they were connected)
+    // Each player's gamepad: those the launcher's Controllers page gave a player, then the rest in the order they were
+    // connected (recomp-common bindings.h: [controllers]); given out again when one comes or goes, not every frame
+    const recomp::PadChoices padChoices = port.opt.settingsPath.empty() ? recomp::PadChoices{} : recomp::LoadPadChoices(port.opt.settingsPath);
+    constexpr int kPlayers = 2;
+    SDL_Gamepad *playerPads[recomp::kBindMaxPlayers] = {};
+    bool padsDirty = true;
     SDL_Texture *texture = nullptr;
     uint32_t texW = 0, texH = 0;
     uint64_t shownSerial = 0;
@@ -638,6 +644,7 @@ int RunWindowed(Port &port) {
             case SDL_EVENT_GAMEPAD_ADDED:
                 if (SDL_Gamepad *gp = SDL_OpenGamepad(ev.gdevice.which)) {
                     gamepads.push_back(gp);
+                    padsDirty = true;
                 }
                 break;
             case SDL_EVENT_GAMEPAD_REMOVED:
@@ -645,6 +652,7 @@ int RunWindowed(Port &port) {
                     if (SDL_GetGamepadID(*it) == ev.gdevice.which) {
                         SDL_CloseGamepad(*it);
                         gamepads.erase(it);
+                        padsDirty = true;
                         break;
                     }
                 }
@@ -654,16 +662,23 @@ int RunWindowed(Port &port) {
         }
 
         if (port.opt.moviePlay.empty()) {
-            // Keyboard and the first gamepad are player 1; a second gamepad is player 2 (who has keys only if
-            // some were chosen)
-            uint16_t pads[2] = {0, 0};
+            // Keyboard and player 1's gamepad are player 1; player 2's gamepad is player 2 (who has keys only if
+            // some were chosen). Which gamepad is whose: playerPads (the launcher's Controllers page, or the order
+            // they were connected); one that plays nobody (Not used, or a third) plays nothing.
+            uint16_t pads[kPlayers] = {0, 0};
             const bool *keys = SDL_GetKeyboardState(nullptr);
             if (!(SDL_GetModState() & SDL_KMOD_ALT)) {
                 pads[0] |= ReadKeyboard(keys, 0);
                 pads[1] |= ReadKeyboard(keys, 1);
             }
-            for (size_t i = 0; i < gamepads.size() && i < 2; i++) {
-                pads[i] |= ReadGamepad(gamepads[i], static_cast<int>(i));
+            if (padsDirty) {
+                recomp::AssignPads(padChoices, gamepads.data(), static_cast<int>(gamepads.size()), kPlayers, playerPads);
+                padsDirty = false;
+            }
+            for (int i = 0; i < kPlayers; i++) {
+                if (playerPads[i]) {
+                    pads[i] |= ReadGamepad(playerPads[i], i);
+                }
             }
             // (and the touch screen's, player 1's; its Menu button opens and closes the menu)
             pads[0] |= touch.Read(port.menu.IsOpen());
@@ -672,10 +687,10 @@ int RunWindowed(Port &port) {
             }
             uint16_t pressed = pads[0] & ~previousPad;
             previousPad = pads[0];
-            // Start and Back (Select) held together, on any gamepad, whatever they do in the game: the menu. The
-            // second of the two to go down is not also a press in the menu (Start chooses a row there), and
+            // Start and Back (Select) held together, on a player's gamepad, whatever they do in the game: the menu.
+            // The second of the two to go down is not also a press in the menu (Start chooses a row there), and
             // neither reaches the game until let go.
-            if (chord.Step(gamepads.data(), static_cast<int>(gamepads.size()))) {
+            if (chord.Step(playerPads, kPlayers)) {
                 toggleMenu();
                 pressed = 0;
                 heldAtClose = previousPad;

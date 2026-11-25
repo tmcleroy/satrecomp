@@ -99,6 +99,8 @@ typedef struct {
   // the speed that is full speed, by its place in `speeds` (the slower ones before it, the faster after; 0 when
   // the first is full speed)
   int normalSpeed;
+  // how many save-state slots the Slot row goes through (0: 9)
+  int slots;
 } RMenuConfig;
 
 typedef enum { RMENU_NONE, RMENU_SAVE, RMENU_LOAD, RMENU_QUIT, RMENU_ACTION, RMENU_COMMAND, RMENU_RESET, RMENU_RESET_OPTIONS } RMenuChosen;

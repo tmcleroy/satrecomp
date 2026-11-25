@@ -44,7 +44,7 @@ struct MenuRow {
     enum Kind {
         Save,   // "Save state": Buttons returns Chosen::Save
         Load,   // "Load state": Chosen::Load
-        Slot,   // the slot (1-9) those two use
+        Slot,   // the slot (1 to MenuConfig::slots) those two use
         Speed,  // one of MenuConfig::speeds (left out when there are none)
         Pages,  // stands for several rows: the commands of no category, then a row for each category's page
         Page,   // a row for one page, named by `title`, wherever the host wants it; Pages then leaves it out
@@ -126,6 +126,8 @@ struct MenuConfig {
     // "A, B or C") and what closes the menu ("Esc", "Esc or Select")
     std::string confirmName = "a button";
     std::string closeName = "Esc";
+    // How many save-state slots the Slot row goes through (1 to slots, around)
+    int slots = 9;
 };
 
 // Presses, with the arrows repeating while held, for a host that knows whether each button is down: given what is down
@@ -165,8 +167,12 @@ public:
     int Slot() const {
         return m_slot;
     }
-    void SetSlot(int slot) { // 1-9, around
-        m_slot = (slot + 8) % 9 + 1;
+    void SetSlot(int slot) { // 1 to MenuConfig::slots, around
+        const int count = SlotCount();
+        m_slot = ((slot - 1) % count + count) % count + 1;
+    }
+    int SlotCount() const {
+        return m_config.slots > 0 ? m_config.slots : 9;
     }
     // The speed chosen, by its place in MenuConfig::speeds (MenuConfig::normalSpeed: full speed)
     int Speed() const {

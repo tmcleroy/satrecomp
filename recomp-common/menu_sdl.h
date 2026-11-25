@@ -4,7 +4,8 @@
 // keyboard and gamepads, and the mouse.
 //
 //   Open and close (from any page): Esc, F1, a phone's Back, Tab (unless the game has it); a gamepad's Guide, its
-//     left stick's click, or Start and Back (Select) together.
+//     left stick's click, or Start and Back (Select) together. Which of the gamepad's is the player's choice
+//     (menu_buttons.h: the launcher's Menu button); Start and Back together always are.
 //   In the menu: the arrows, the d-pad and the left stick choose (held: on and on, with MenuRepeat); Enter, Space
 //     and A (south) confirm; Backspace and B (east) go back a page. The mouse: over a row chooses it, a click
 //     confirms, the right button goes back, the wheel goes up and down.
@@ -13,6 +14,8 @@
 #pragma once
 
 #include "menu.h"
+#include "menu_buttons.h"
+#include "menu_turn.h"
 
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_gamepad.h>
@@ -32,9 +35,17 @@ inline bool MenuKey(SDL_Scancode key, bool tabFree = true) {
     return key == SDL_SCANCODE_ESCAPE || key == SDL_SCANCODE_F1 || key == SDL_SCANCODE_AC_BACK || (tabFree && key == SDL_SCANCODE_TAB);
 }
 
-// A gamepad button that opens and closes the menu by itself (one the game has not been given)
+// A gamepad button that opens and closes the menu by itself (one the game has not been given), as `buttons` has them:
+// Guide (but with Start+Select only), the left stick's click (with guide-stick only). Start and Back are MenuChord's.
+inline bool MenuButton(SDL_GamepadButton button, MenuButtons buttons) {
+    return (button == SDL_GAMEPAD_BUTTON_GUIDE && buttons != MenuButtons::Chord) ||
+           (button == SDL_GAMEPAD_BUTTON_LEFT_STICK && buttons == MenuButtons::GuideStick);
+}
+
+// ... as the player chose (RECOMP_MENU_BUTTON from the launcher, or the port's own: menu_buttons.h), read once
 inline bool MenuButton(SDL_GamepadButton button) {
-    return button == SDL_GAMEPAD_BUTTON_GUIDE || button == SDL_GAMEPAD_BUTTON_LEFT_STICK;
+    static const MenuButtons chosen = MenuButtonsFromEnvironment();
+    return MenuButton(button, chosen);
 }
 
 // Start and Back held together on a gamepad, whatever the game has them as: Step is true when they have just come
@@ -87,10 +98,24 @@ inline unsigned MenuHeld(const bool *keys, SDL_Gamepad *const *pads, int count) 
 }
 
 // Where the menu's picture is on the window: its rectangle in the window's pixels (as the port draws it there),
-// and the picture's own size (what Menu::Draw was given)
+// the picture's own size (what Menu::Draw was given), and its turn there, in degrees clockwise (menu_turn.h: the
+// menu turned with the picture for a monitor on its side; the rectangle is then the turned picture's)
 struct MenuPlace {
     float x = 0, y = 0, w = 0, h = 0;
     int width = 0, height = 0;
+    int turn = 0;
+    // A place in the window's pixels as a place in the menu's picture (for Menu::Mouse), through the turn
+    void ToMenu(float px, float py, float &mx, float &my) const {
+        if (turn::Normal(turn) == 0) {
+            mx = w > 0 ? (px - x) * width / w : 0;
+            my = h > 0 ? (py - y) * height / h : 0;
+            return;
+        }
+        float u = 0, v = 0;
+        turn::Unturn(turn, w > 0 ? (px - x) / w : 0, h > 0 ? (py - y) / h : 0, u, v);
+        mx = u * width;
+        my = v * height;
+    }
 };
 
 // The mouse, for the menu: an SDL event of the mouse's, while the menu is open, handed on to Menu::Mouse. True when
@@ -129,8 +154,8 @@ inline bool MouseEvent(const SDL_Event &event, SDL_Window *window, const MenuPla
     }
     // (the window's points to its pixels, then to the picture's)
     const float density = window ? SDL_GetWindowPixelDensity(window) : 1.0f;
-    const float x = (px * (density > 0 ? density : 1.0f) - place.x) * place.width / place.w;
-    const float y = (py * (density > 0 ? density : 1.0f) - place.y) * place.height / place.h;
+    float x = 0, y = 0;
+    place.ToMenu(px * (density > 0 ? density : 1.0f), py * (density > 0 ? density : 1.0f), x, y);
     chosen = menu.Mouse(what, x, y);
     return true;
 }

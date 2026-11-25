@@ -112,6 +112,17 @@ struct Online {
     bool spectators_default = false;
 };
 
+// The player's own shader presets (own_shaders.h): the choice of a feature's (a Shader feature's "Your own") that draws
+// through a .slangp preset the player put in the shared shaders folder, shaders/ in the launcher's own folder. The
+// launcher makes that folder when it starts and tells the games it starts where it is (RECOMP_SHADERS). Under the
+// feature's row: Your own preset, a list of every preset found there (in its folders too), built anew as the folder
+// changes, whose choice is kept by name in each game's settings.ini ([shader] own) and chooses `choice` too; and the
+// folder's row, with its path and Open shaders folder (not on Android, where the row says why). nullptr: none.
+struct OwnShaders {
+    const char *feature = nullptr; // "shader"
+    int choice = 0;                // its choice that draws through the player's own ("Your own")
+};
+
 struct InfoRow {
     const char *label;
     const char *text;
@@ -209,6 +220,9 @@ struct Description {
     // is, and the game's own folder (its settings, saves...). False leaves it out of the feature's dropdown, unless it
     // is the one chosen now. Called while drawing: keep it quick.
     std::function<bool(const std::string &feature, int choice, const std::string &file, const std::filesystem::path &folder)> choice_shown;
+    // Optional: the player's own shader presets, under the feature that uses them (OwnShaders above; a collection's
+    // are its first game's)
+    OwnShaders own_shaders;
     // Optional: a game file near the program (a build inside the source tree), or ""
     std::function<std::string(const std::filesystem::path &program_folder)> find_nearby;
     // Optional: where in the folder the download was unpacked to (recomp::InstallFolder, folders.h) this game's
@@ -282,6 +296,10 @@ struct CollectionGame {
     // The hardware it ran on, as the player reads it ("CV1000"), or nullptr. When the games name two or more, the
     // Games page has a choice of which to list (all, or one of them), and the sidebar follows it.
     const char *hardware = nullptr;
+    // The id of the game it is a mod of (a community change of that game's ROM set: "sf2hf"), or nullptr. Its row in
+    // the sidebar is under that game's, which opens and closes like a series' row, so that a game's mods don't fill
+    // the list; it moves with that game, and is listed after it on the Games page and its series' page.
+    const char *mod_of = nullptr;
 };
 
 // A choice of a multi-game mode's: a row of its card on the Multi game page, kept in launcher.ini under
