@@ -252,6 +252,29 @@ void text(const char* value, Font font, float value_size, ImU32 text_color, floa
     pop_font();
 }
 
+void pieces(const std::vector<Piece>& list, const char* between, float value_size, ImU32 color, ImU32 strong_color, float wrap) {
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const float line = std::round(value_size * scale() * 1.3f);
+    float x = 0.0f, y = 0.0f, widest = 0.0f;
+    for (size_t n = 0; n < list.size(); n++) {
+        const Piece& piece = list[n];
+        const std::string shown = piece.text + (n + 1 < list.size() ? between : "");
+        const Font font = piece.strong ? Font::Semibold : Font::Regular;
+        push_font(font, value_size);
+        const float width = ImGui::CalcTextSize(shown.c_str()).x;
+        if (x > 0.0f && wrap > 0.0f && x + width > wrap) {
+            x = 0.0f;
+            y += line;
+        }
+        draw->AddText(origin + ImVec2(x, y), piece.strong ? strong_color : color, shown.c_str());
+        pop_font();
+        x += width;
+        widest = std::max(widest, x);
+    }
+    ImGui::Dummy(ImVec2(wrap > 0.0f ? std::min(widest, wrap) : widest, list.empty() ? 0.0f : y + line));
+}
+
 namespace {
 // (the words as they are: already looked up)
 ImVec2 shown_size(const char* value, Font font, float value_size, float wrap = 0.0f) {

@@ -77,6 +77,7 @@ const launcher::Description &launcher::describe() {
         d.community_detail = "Find players for a match, tell us what to fix or add, and hear about new versions first.";
         d.community_button = "Open Discord";
         d.arguments = arguments;
+        d.own_shaders = {"filter", 5}; // (Filter's Your own: the player's own shader presets)
         d.display = {
             {"fullscreen", "Full screen", "F11 switches while playing.", false, nullptr},
             {"high_resolution", "High resolution", "Drawn at the window's resolution. Off: the original's.", true, nullptr},

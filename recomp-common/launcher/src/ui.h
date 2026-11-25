@@ -66,6 +66,13 @@ ImU32 fade(ImU32 color, float alpha);
 void push_font(Font font, float size);
 void pop_font();
 void text(const char* value, Font font, float size, ImU32 color, float wrap = 0.0f);
+// Pieces of text one after another, `between` each two, wrapped at `wrap` between pieces (never inside one): each in `color`, or the ones marked strong in the semibold font and `strong_color`. The words
+// as given (not looked up: names)
+struct Piece {
+    std::string text;
+    bool strong = false;
+};
+void pieces(const std::vector<Piece>& list, const char* between, float size, ImU32 color, ImU32 strong_color, float wrap);
 ImVec2 text_size(const char* value, Font font, float size, float wrap = 0.0f);
 void gap(float value);
 

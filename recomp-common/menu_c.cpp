@@ -61,6 +61,9 @@ void rmenu_configure(RMenu *menu, const RMenuConfig *c) {
     }
     config.speedDescription = Str(c->speedDescription);
     config.normalSpeed = c->normalSpeed;
+    if (c->slots > 0) {
+        config.slots = c->slots;
+    }
     for (int i = 0; i < c->pageCount; i++) {
         const RMenuPage &page = c->pages[i];
         recomp::MenuPage to{Str(page.name), Str(page.parent), Str(page.description)};

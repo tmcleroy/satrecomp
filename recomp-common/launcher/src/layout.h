@@ -46,8 +46,10 @@ private:
 // A card row: label and detail on the left, a control on the right. In a narrow window, where the words would have
 // too little room beside the control, the control goes under them. `dim`: its words greyed (a row that can't be used
 // yet: a game that isn't there, say)
-template <typename Control>
-void row(float width, const char* label, const char* detail, float control_width, float control_height, Control control, bool dim = false) {
+// ... `more`: drawn under the detail, given the width the words have (a list of the row's own, say)
+template <typename Control, typename More>
+void row_more(float width, const char* label, const char* detail, float control_width, float control_height, Control control, More more,
+              bool dim = false) {
     using ui::px;
     const ui::Palette& p = ui::palette();
     ImVec2 top = ImGui::GetCursorScreenPos();
@@ -64,6 +66,7 @@ void row(float width, const char* label, const char* detail, float control_width
         ui::gap(3);
         ui::text(detail, ui::Font::Regular, ui::size::kDetail, dim ? p.tertiary : p.secondary, text_width);
     }
+    more(text_width);
     ImGui::EndGroup();
     float bottom = ImGui::GetItemRectMax().y + px(14);
     if (under) {
@@ -77,6 +80,11 @@ void row(float width, const char* label, const char* detail, float control_width
     }
     ImGui::SetCursorScreenPos(ImVec2(top.x, bottom));
     ImGui::Dummy(ImVec2(width, 0));
+}
+
+template <typename Control>
+void row(float width, const char* label, const char* detail, float control_width, float control_height, Control control, bool dim = false) {
+    row_more(width, label, detail, control_width, control_height, control, [](float) {}, dim);
 }
 
 inline void inset_separator(float width) {
