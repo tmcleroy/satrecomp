@@ -33,7 +33,17 @@ constexpr Palette kDark = {
     IM_COL32(48, 209, 88, 255),   IM_COL32(0, 0, 0, 128),
 };
 
+// (the in-game menu's colours, recomp-common's menu.cpp window look: the Tabs layout)
+constexpr Palette kMenu = {
+    IM_COL32(11, 14, 19, 255),    IM_COL32(15, 19, 26, 255),    IM_COL32(20, 25, 34, 255),    IM_COL32(232, 236, 242, 255),
+    IM_COL32(154, 165, 182, 255), IM_COL32(112, 122, 140, 255), IM_COL32(31, 37, 48, 255),    IM_COL32(26, 33, 48, 255),
+    IM_COL32(34, 42, 58, 255),    IM_COL32(42, 52, 70, 255),    IM_COL32(124, 196, 255, 255), IM_COL32(159, 211, 255, 255),
+    IM_COL32(8, 17, 28, 255),     IM_COL32(124, 196, 255, 255), IM_COL32(124, 196, 255, 40),  IM_COL32(240, 128, 116, 255),
+    IM_COL32(126, 224, 168, 255), IM_COL32(0, 0, 0, 140),
+};
+
 bool g_dark = false;
+bool g_menu = false;
 float g_scale = 1.0f;
 float g_delta = 0.0f;
 bool g_animating = false;
@@ -119,7 +129,11 @@ bool dark() {
 }
 
 const Palette& palette() {
-    return g_dark ? kDark : kLight;
+    return g_menu ? kMenu : g_dark ? kDark : kLight;
+}
+
+void set_menu_look(bool on) {
+    g_menu = on;
 }
 
 float scale() {
@@ -154,7 +168,7 @@ void apply_style(float value) {
     style.Colors[ImGuiCol_Text] = color(p.text);
     style.Colors[ImGuiCol_WindowBg] = color(p.background);
     style.Colors[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
-    style.Colors[ImGuiCol_PopupBg] = color(g_dark ? IM_COL32(36, 36, 40, 255) : IM_COL32(255, 255, 255, 255));
+    style.Colors[ImGuiCol_PopupBg] = color(g_menu ? IM_COL32(22, 28, 38, 255) : g_dark ? IM_COL32(36, 36, 40, 255) : IM_COL32(255, 255, 255, 255));
     style.Colors[ImGuiCol_Border] = color(p.separator);
     style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
     style.Colors[ImGuiCol_ScrollbarGrab] = color(fade(p.tertiary, 0.55f));

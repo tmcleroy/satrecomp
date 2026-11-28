@@ -7,7 +7,8 @@
 //     left stick's click, or Start and Back (Select) together. Which of the gamepad's is the player's choice
 //     (menu_buttons.h: the launcher's Menu button); Start and Back together always are.
 //   In the menu: the arrows, the d-pad and the left stick choose (held: on and on, with MenuRepeat); Enter, Space
-//     and A (south) confirm; Backspace and B (east) go back a page. The mouse: over a row chooses it, a click
+//     and A (south) confirm; Backspace and B (east) go back a page. The tabbed menu's tabs: Q and E, the shoulder
+//     buttons (LB, RB); an option back to its default: Delete, X (west). The mouse: over a row chooses it, a click
 //     confirms, the right button goes back, the wheel goes up and down.
 //
 // Header only; the port includes it where it has SDL 3, and links SDL as it does already.
@@ -29,6 +30,10 @@ namespace recomp::sdl {
 // The hint line's names for the buttons (MenuConfig::confirmName and closeName)
 constexpr const char *kConfirmName = "Enter or A";
 constexpr const char *kCloseName = "Esc";
+// ... and the tabbed menu's for changing tab and for Back (MenuConfig::tabsName, backName)
+constexpr const char *kTabsName = "Q/E or LB/RB";
+constexpr const char *kBackName = "Backspace or B";
+constexpr const char *kHotkeyName = "H or Y";
 
 // A key that opens and closes the menu (tabFree: the game has not been given Tab)
 inline bool MenuKey(SDL_Scancode key, bool tabFree = true) {
@@ -79,6 +84,10 @@ inline unsigned MenuHeld(const bool *keys, SDL_Gamepad *const *pads, int count) 
                     ? kMenuConfirm
                     : 0;
         held |= keys[SDL_SCANCODE_BACKSPACE] ? kMenuBack : 0;
+        held |= keys[SDL_SCANCODE_Q] ? kMenuTabPrev : 0;
+        held |= keys[SDL_SCANCODE_E] ? kMenuTabNext : 0;
+        held |= keys[SDL_SCANCODE_DELETE] ? kMenuDefault : 0;
+        held |= keys[SDL_SCANCODE_H] ? kMenuHotkey : 0;
     }
     constexpr Sint16 kTilt = 16384; // (half way)
     for (int i = 0; i < count; i++) {
@@ -93,6 +102,10 @@ inline unsigned MenuHeld(const bool *keys, SDL_Gamepad *const *pads, int count) 
         held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || x > kTilt ? kMenuRight : 0;
         held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH) ? kMenuConfirm : 0;
         held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_EAST) ? kMenuBack : 0;
+        held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ? kMenuTabPrev : 0;
+        held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) ? kMenuTabNext : 0;
+        held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_WEST) ? kMenuDefault : 0;
+        held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_NORTH) ? kMenuHotkey : 0;
     }
     return held;
 }

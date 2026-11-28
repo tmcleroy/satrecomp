@@ -44,6 +44,10 @@ inline constexpr int kBindPlayers = 2;    // how many players a table has unless
 inline constexpr int kBindMaxPlayers = 4; // ... and the most it can say
 inline constexpr int kBindMaxActions = 32;
 
+// How far a trigger goes before it counts as pressed (of SDL's 0 to 32767): a game's, the launcher's choosing of one for
+// an action, and its Controllers test
+inline constexpr int kTriggerPressed = 16000;
+
 // A gamepad's button, or one of its triggers, or nothing
 struct PadInput {
     int button = -1; // SDL_GamepadButton

@@ -541,6 +541,7 @@ bool Port::Init() {
     auto &sat = *saturn;
     satrecomp::RegisterGame(); // (the game's own sources: lifted routines, features, widescreen layout)
     RegisterPortFeatures();
+    menu.settingsPath = opt.settingsPath;
     // (widescreen as the launcher said, by --widescreen, whatever settings.ini has: launcher.ini keeps it)
     satrecomp::LoadFeatures(opt.settingsPath, opt.features + (opt.aspect > 1.34f ? ",widescreen" : ",-widescreen"));
 
@@ -792,15 +793,32 @@ void Port::RunFrame() {
         }
     }
 
-    // (tests: --menu FRAME:KEYS[:shot.png]: the menu opened at that frame and those buttons pressed in it: u d l r a s b)
+    // (tests: --menu FRAME:KEYS[:shot.png]: the menu opened at that frame and those buttons pressed in it: u d l r a s b, q and e for the tab before and after, x for an option's default, h for a hotkey, k to give it F3 then, c to close the menu and
+    // press F3 in the game, which says what it did on stderr)
     if (!menuTest.empty() && strtoull(menuTest.c_str(), nullptr, 10) == frame) {
         const size_t first = menuTest.find(':'), second = menuTest.find(':', first + 1);
         const std::string keys = menuTest.substr(first + 1, second == std::string::npos ? std::string::npos : second - first - 1);
         menu.Open(true);
         for (const char key : keys) {
             // (b: the menu's Back, as Backspace or a gamepad's B)
-            if (key == 'b') {
-                MenuAct(menu.Press(recomp::kMenuBack));
+            if (key == 'h') {
+                MenuAct(menu.Press(recomp::kMenuHotkey));
+                continue;
+            }
+            if (key == 'k' || key == 'c') {
+                SDL_Event f3{};
+                f3.type = SDL_EVENT_KEY_DOWN;
+                f3.key.scancode = SDL_SCANCODE_F3;
+                if (key == 'k') {
+                    menu.HotkeyListen(f3, [](recomp::Hotkey) { return std::string(); });
+                } else {
+                    menu.Close();
+                    fprintf(stderr, "hotkey: %s\n", menu.HotkeyPress(f3).c_str());
+                }
+                continue;
+            }
+            if (key == 'b' || key == 'q' || key == 'e' || key == 'x') {
+                MenuAct(menu.Press(key == 'b' ? recomp::kMenuBack : key == 'q' ? recomp::kMenuTabPrev : key == 'e' ? recomp::kMenuTabNext : recomp::kMenuDefault));
                 continue;
             }
             const uint16_t button = key == 'u' ? kPadUp : key == 'd' ? kPadDown : key == 'l' ? kPadLeft : key == 'r' ? kPadRight : key == 'a' ? kPadA : key == 's' ? kPadStart : 0;
@@ -906,6 +924,7 @@ void Port::MenuAct(Menu::Action action) {
         return;
     }
     if (action == Menu::Action::Quit) {
+        KeepPicture(); // (before the menu goes: the game's picture, not the menu's)
         quit = true;
         menu.Close();
         return;
@@ -1215,6 +1234,15 @@ void Port::SaveShot(const std::string &path) {
     }
 }
 
+void Port::KeepPicture() {
+    // (a run of a few seconds at least, in a window: not a test's, nor a start that went straight back out)
+    const std::string path = satrecomp::DataFilePath("picture.png");
+    if (opt.headless || frame < 600 || path.empty()) {
+        return;
+    }
+    SaveShot(path);
+}
+
 std::string Port::Screenshot() {
     std::string folder = satrecomp::DataFilePath("screenshots");
     if (folder.empty()) {
@@ -1440,6 +1468,13 @@ static std::string LauncherFeatureList() {
     port::RegisterPortFeatures();
     std::vector<recomp::FeatureInfo> list = satrecomp::FeatureList();
     list.erase(std::remove_if(list.begin(), list.end(), [](const recomp::FeatureInfo &f) { return f.flags & satrecomp::kFeatureFirstPage; }), list.end());
+    // (what the launcher shows, all else being the in-game menu's alone: what has to be set before the game starts,
+    // recomp-common settings.h's kFeatureLauncher: launcher/src/description.cpp)
+    for (recomp::FeatureInfo &f : list) {
+        if (f.name == "window_size") {
+            f.flags |= recomp::kFeatureLauncher;
+        }
+    }
     return recomp::FeatureListText(list);
 }
 

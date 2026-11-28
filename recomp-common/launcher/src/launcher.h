@@ -194,6 +194,20 @@ struct Description {
     const char *features_name = "Features";
     const char *features_intro = nullptr;
     bool presets = true;
+    // Only the features marked kFeatureLauncher (settings.h) on the Features page, a game's page and the Online page:
+    // what has to be set before a game starts. The rest are changed in the game's own menu, where they can be tried
+    // on the picture (and still saved, and set by the presets).
+    bool launcher_features_only = false;
+    // How the launcher is laid out: Sidebar (the pages and a collection's games down the left), or Tabs (the in-game
+    // menu's look: the pages as tabs along the top, a collection's games as a grid of pictures with the chosen one's
+    // Play, switches and details beside it; LB/RB change tab). A collection takes its first game's.
+    enum class Layout { Sidebar, Tabs };
+    Layout layout = Layout::Sidebar;
+    // With it: a small card of this category's features on each game's page, set for that game alone (the board's
+    // own settings: "Board"); nullptr: none
+    const char *board_category = nullptr;
+    // ... and these features, by name, on the Controllers page ("keyboard_only")
+    std::vector<const char *> controller_features;
 
     // Where the original ran, as the Features page says it: "in the arcade", "on the console"
     const char *original = "";

@@ -15,11 +15,13 @@ where each way of showing the picture puts it: the GPU's swapchain, the SDL rend
 window). Buttons held as it closes do not reach the game until let go. Nothing but the menu's "Quit game" row (and
 closing the window) ends the game: Esc does not.
 
-The first page is the standard one (recomp-common's `menu_layout.h`, `layout::Standard`): Display, Game (and
-Online, when a port has it); the game's head pages (Alternative modes, with Training mode under it); Save state,
-Load state, Slot (1-9); the pages of other categories and the Saturn's own rows, Set reset point and Go to reset
-point; Reset all options, Reset game, Quit game, Resume. The Game page has Speed and Mute at its top, then Cheats,
-Sound and Pictures, then the game's options. It opens on the page and the row it was closed on.
+The menu is in tabs (recomp-common's `menu_layout.h`, `layout::Tabbed`, which lays the pages out as `layout::Standard`
+does as well). A row at the top has Back, Save state, Load state, Slot (1-9), Reset game, Quit game and Resume; the
+tabs are Game, Display, Sound, Online, Training, Modes, Stage, Cheats and Capture, the same in every port (a tab with
+nothing in it is hidden). Game has Speed, Mute, the Saturn's own rows (Set reset point, Go to reset point), the game's
+options, Pictures and Reset all options; the game's head pages (Alternative modes, with Training mode under it) are
+under Modes and Training. LB/RB (or Q/E) change tab, X (or Delete) puts an option back as the Enhanced preset has it
+(`config.defaultValue`), and an option changed from that is marked. It opens on the tab and the row it was closed on.
 
 The menu itself (its look, its rules, the pages made from the features) is the one the recomp ports share:
 `recomp-common/menu.{h,cpp}` and `recomp-common/text.h` are a copy of the `recomp-common` repository's `src/`, made by
@@ -30,7 +32,7 @@ then run `tools/sync-common.sh` here and commit the copy. `port/menu.{h,cpp}` is
 about it: the first page's rows, the Saturn pad's buttons turned into the menu's six, the speeds, and the
 games' features handed over.
 
-Test hook: `--menu FRAME:KEYS[:shot.png]` opens it at that frame and presses (u d l r a s; b: Back), headless. A run that
+Test hook: `--menu FRAME:KEYS[:shot.png]` opens it at that frame and presses (u d l r a s; b: Back; q and e: the tab before and after; x: an option's default), headless. A run that
 chooses "Quit game" this way ends there.
 
 **Pages.** A game may give the menu pages beyond its categories (`Game::pages`: a name, the page it is under, a

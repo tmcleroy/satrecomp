@@ -576,8 +576,35 @@ int RunWindowed(Port &port) {
             if (touch.Event(ev)) {
                 continue; // (a finger's: the touch controls')
             }
+            // Hotkeys (recomp-common/hotkey.h): while the menu asks for one (H or Y on an option's row), the key or button
+            // pressed is the answer, any but those that play the game; in the game, a hotkey steps its option and says
+            // what it is now
+            if (port.menu.HotkeyListen(ev, [&](recomp::Hotkey hotkey) -> std::string {
+                    if (hotkey.key != SDL_SCANCODE_UNKNOWN && KeyBound(hotkey.key)) {
+                        return "That key plays the game.";
+                    }
+                    if (hotkey.button != SDL_GAMEPAD_BUTTON_INVALID && ButtonBound(hotkey.button)) {
+                        return "That button plays the game.";
+                    }
+                    return "";
+                })) {
+                menuDirty = true;
+                continue;
+            }
+            if (!port.menu.IsOpen()) {
+                if (std::string said = port.menu.HotkeyPress(ev); !said.empty()) {
+                    for (char &c : said) { // (in capitals, as the rest said at the bottom)
+                        c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+                    }
+                    note(said);
+                    continue;
+                }
+            }
             switch (ev.type) {
-            case SDL_EVENT_QUIT: running = false; break;
+            case SDL_EVENT_QUIT:
+                port.KeepPicture(); // (the launcher's tile of the game: its last picture)
+                running = false;
+                break;
             case SDL_EVENT_MOUSE_MOTION:
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
             case SDL_EVENT_MOUSE_WHEEL:

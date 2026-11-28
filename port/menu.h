@@ -11,10 +11,13 @@
 #pragma once
 
 #include "../recomp-common/menu.h"
+#include "../recomp-common/hotkey.h"
 #include "../recomp-common/menu_layout.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace port {
 
@@ -66,6 +69,13 @@ public:
     // A speed slower (by -1) or faster (+1) than now (the - and = keys); and full speed again
     void Faster(int by);
     void SetFullSpeed();
+    // Hotkeys (recomp-common/hotkey.h; the game's settings.ini, [menu] hotkeys): H or Y on an option's row asks for a
+    // key or button. HotkeyListen: an event while it asks, which answers it (true: the event was that), `taken` saying
+    // why one plays the game. HotkeyPress: in the game, a hotkey's event steps its option; what it is now ("": none).
+    bool HotkeyListen(const SDL_Event &event, const std::function<std::string(recomp::Hotkey)> &taken);
+    std::string HotkeyPress(const SDL_Event &event);
+    // Where the hotkeys are kept (the settings.ini; none: not kept)
+    std::string settingsPath;
     // A line to tell the player (why not, say), until the next press
     void Note(const std::string &text) {
         m_menu.Note(text);
@@ -81,8 +91,14 @@ private:
     // (the speeds alone, so that - and = work before the menu is first opened)
     void ConfigureSpeeds();
 
+    void LoadHotkeys();
+
     recomp::Menu m_menu;
     bool m_configured = false;
+    bool m_withStates = true;
+    recomp::Hotkeys m_hotkeys;
+    bool m_hotkeysLoaded = false;
+    std::vector<std::string> m_ids; // (each menu feature's id, for the hotkeys)
 };
 
 } // namespace port

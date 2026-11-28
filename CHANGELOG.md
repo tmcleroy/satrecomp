@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Hotkeys for the in-game menu's options** (recomp-common hotkey.h): H (or a gamepad's Y) on an option's row asks for
+  a key or button; while playing it then steps that option (run-ahead through its frames, the shader through its list,
+  a switch on and off; Shift with a key goes back), and what it is now shows at the bottom. Keys and buttons that play
+  the game, and the menu's own, can't be one. Kept per game in settings.ini (`[menu] hotkeys`). The menu on a stood-up
+  or narrow picture fits (recomp-common #107). `--menu` takes h, k and c to test them.
+- **The in-game menu in tabs and the launcher with Tabs** (recomp-common d9df005, as cps2recomp has them). Back, Save
+  state, Load state, Slot, Reset game, Quit game and Resume stay in a row at the top; every option is under one of
+  nine tabs, the same in every game: Game, Display, Sound, Online, Training, Modes, Stage, Cheats and Capture (the
+  empty ones are hidden). LB/RB (or Q/E) change tab, X (or Delete) puts an option back as the Enhanced preset has
+  it, and the mouse reaches everything. The launcher shows only what is set before the game starts (the window's
+  size, besides its own switches); the rest is the in-game menu's. Its Tabs look has the games along the top and a
+  Settings tab, and a game's tile shows the picture it left on quitting (`picture.png`). `--menu` takes q, e and x
+  as well as u d l r a s b.
 - Which controller is which player: the launcher's Controllers page gives each connected gamepad Automatic,
   Player 1, Player 2 or Not used (recomp-common aac17cc, settings.ini's `[controllers]`), and the game hands its
   gamepads to the players with `recomp::AssignPads`, again whenever one is connected or let go. A Steam Deck's own

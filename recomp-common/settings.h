@@ -53,6 +53,10 @@ enum : unsigned {
     // A choice of several whose list in the game's menu the player may make shorter (in the launcher: the favourites
     // of a long list): MenuChoices
     kFeatureMenuChoices = 128,
+    // Shown by a launcher that shows only the features set before a game starts (launcher.h's
+    // Description::launcher_features_only): the rest are the game's menu's alone. (A high bit: ports' own flags are
+    // the low ones.)
+    kFeatureLauncher = 1u << 20,
 };
 
 struct FeatureInfo {
