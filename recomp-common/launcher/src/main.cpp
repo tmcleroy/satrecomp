@@ -69,6 +69,36 @@ void back_is_escape(SDL_Event& event) {
     }
 }
 
+// The gamepads ImGui moves the ring with: all of them, but the one being tested on the Controllers page (App::testing_pad),
+// whose buttons only show in the test. (The list is made again when the test starts or stops, or a gamepad comes or goes.)
+void navigation_pads(SDL_JoystickID testing) {
+    static SDL_JoystickID was = 0;
+    static int was_count = -1;
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&count);
+    if (testing != was || (testing && count != was_count)) {
+        if (!testing) {
+            ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
+        } else {
+            std::vector<SDL_Gamepad*> others;
+            for (int i = 0; i < count; i++) {
+                if (ids[i] == testing) {
+                    continue;
+                }
+                SDL_Gamepad* pad = SDL_GetGamepadFromID(ids[i]);
+                pad = pad ? pad : SDL_OpenGamepad(ids[i]);  // (opened for good, as the Controllers page does)
+                if (pad) {
+                    others.push_back(pad);
+                }
+            }
+            ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_Manual, others.data(), static_cast<int>(others.size()));
+        }
+        was = testing;
+        was_count = count;
+    }
+    SDL_free(ids);
+}
+
 // Dark unless the system says light: where it says nothing (Steam's Gaming Mode, which has no desktop to ask; a
 // desktop with no preference) the launcher matches Steam's own dark look
 bool system_dark() {
@@ -421,6 +451,7 @@ int main(int argc, char** argv) {
         }
         // (while a key or a button is being chosen for an action, it is not also a press of what the ring is on)
         io.ConfigFlags = app.navigation_paused() ? io.ConfigFlags & ~navigation : io.ConfigFlags | navigation;
+        navigation_pads(app.testing_pad());
         Uint64 now = SDL_GetTicksNS();
         ui::begin_frame(static_cast<float>(now - previous) / 1e9f);
         previous = now;

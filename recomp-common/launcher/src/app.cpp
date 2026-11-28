@@ -2141,6 +2141,25 @@ void App::set_interactive() {
 #endif
 }
 
+// A gamepad's test (the Controllers page) ends when the page is no longer shown, the gamepad goes, or its B is held for
+// a second. Then nothing moves until that B is let go (it is ImGui's again from the next frame, and would be Back).
+void App::pad_test_frame() {
+    if (testing_pad_) {
+        SDL_Gamepad* pad = SDL_GetGamepadFromID(testing_pad_);
+        const bool back = pad && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_EAST);
+        const Uint64 now = SDL_GetTicks();
+        test_back_since_ = !back ? 0 : test_back_since_ ? test_back_since_ : now;
+        const bool held = back && now - test_back_since_ >= 1000;
+        if (!test_shown_ || !pad || held) {
+            testing_pad_ = 0;
+            test_back_since_ = 0;
+            nav_hold_ = nav_hold_ || held;
+        }
+        ui::request_frames(2);  // (the hold is timed while frames are drawn)
+    }
+    test_shown_ = false;
+}
+
 // What the arrow keys and a gamepad do beyond moving the ring and pressing what it is on (which is ImGui's).
 void App::navigation() {
     bool held = false;
@@ -2154,6 +2173,7 @@ void App::navigation() {
         nav_hold_ = false;
         ui::show_focus();  // (the ring is where it was)
     }
+    pad_test_frame();
     if (show_focus_ && ImGui::GetFocusID() != 0) {
         ui::show_focus();
         show_focus_ = false;
@@ -5477,7 +5497,7 @@ bool App::capture(const SDL_Event& event) {
         nav_hold_ = true;
         return true;
     }
-    if (capture_gamepad_ && event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && event.gaxis.value > 16000 &&
+    if (capture_gamepad_ && event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && event.gaxis.value > recomp::kTriggerPressed &&
         (event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || event.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)) {
         bind(bind_player_, true, capture_action_, SDL_SCANCODE_UNKNOWN, {-1, event.gaxis.axis});
         capture_action_ = -1;
@@ -5567,8 +5587,12 @@ void App::controllers_page(float width) {
                 }
                 ImGui::SameLine(0.0f, px(10));
             }
-            if (ui::button(selected_pad_ == i ? "Testing" : "Test", selected_pad_ == i ? Kind::Primary : Kind::Secondary, 110.0f)) {
+            // (Test: the test below is this gamepad's, and its buttons move nothing else until it stops; Stop test: it stops)
+            const bool testing = testing_pad_ == pads[i];
+            if (ui::button(testing ? "Stop test" : "Test", testing ? Kind::Primary : Kind::Secondary, 110.0f)) {
                 selected_pad_ = i;
+                testing_pad_ = testing ? 0 : pads[i];
+                test_back_since_ = 0;
             }
         });
         ImGui::PopID();
@@ -5589,6 +5613,13 @@ void App::controllers_page(float width) {
             ui::text("TEST", Font::Semibold, ui::size::kDetail, p.secondary);
             ui::gap(10);
             Card test(width);
+            const bool testing = testing_pad_ == pads[index];
+            test_shown_ = test_shown_ || testing;
+            row(width, SDL_GetGamepadNameForID(pads[index]) ? SDL_GetGamepadNameForID(pads[index]) : "?",
+                testing ? "Being tested: its buttons only show here, and move nothing else. Hold B (Circle) for a second to stop."
+                        : "Press Test (above) to try every button without moving around the launcher.",
+                0.0f, 0.0f, [] {});
+            inset_separator(width);
             std::string pressed;
             for (int b = 0; b < SDL_GAMEPAD_BUTTON_COUNT; b++) {
                 if (SDL_GetGamepadButton(pad, static_cast<SDL_GamepadButton>(b))) {
@@ -5597,9 +5628,20 @@ void App::controllers_page(float width) {
                     pressed += label ? label : "?";
                 }
             }
+            // (a trigger is pressed where a game counts it pressed: past halfway, as bindings.h's kTriggerPressed)
+            for (const SDL_GamepadAxis trigger : {SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER}) {
+                if (SDL_GetGamepadAxis(pad, trigger) > recomp::kTriggerPressed) {
+                    pressed += pressed.empty() ? "" : "  ";
+                    pressed += SDL_GetGamepadStringForAxis(trigger);
+                }
+            }
             row(width, "Buttons", pressed.empty() ? "(press any button)" : pressed.c_str(), 0.0f, 0.0f, [] {});
             inset_separator(width);
             auto axis = [&](SDL_GamepadAxis a) { return static_cast<float>(SDL_GetGamepadAxis(pad, a)) / 32767.0f; };
+            char triggers[64];
+            std::snprintf(triggers, sizeof triggers, "left %.2f   right %.2f", axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER), axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+            row(width, "Triggers", triggers, 0.0f, 0.0f, [] {});
+            inset_separator(width);
             char sticks[128];
             std::snprintf(sticks, sizeof sticks, "left %+.2f %+.2f   right %+.2f %+.2f", axis(SDL_GAMEPAD_AXIS_LEFTX), axis(SDL_GAMEPAD_AXIS_LEFTY),
                           axis(SDL_GAMEPAD_AXIS_RIGHTX), axis(SDL_GAMEPAD_AXIS_RIGHTY));
