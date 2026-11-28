@@ -75,6 +75,10 @@ public:
     // main.cpp switches them off for those frames. (A collection's launcher, whose games can run several at
     // once, is paused only while one runs and the launcher's window is not the one in front.)
     bool navigation_paused() const;
+    // The gamepad being tested on the Controllers page (0: none): its buttons and sticks only show in the test there,
+    // and move nothing in the launcher (main.cpp leaves it out of ImGui's gamepads), until its B is held for a second,
+    // the test is stopped with the mouse or another gamepad, or the page is left
+    SDL_JoystickID testing_pad() const { return testing_pad_; }
     // A finger dragged on a touch screen (main.cpp): over the sidebar (x, in the window's points, is in it) its list is
     // scrolled by `by` points, as the mouse wheel scrolls it; false where it is not the sidebar's
     bool scroll_sidebar(float x, float by);
@@ -471,6 +475,10 @@ private:
     bool relaunched_ = false;  // (the new version has been started: this one quits)
 #endif
     int selected_pad_ = 0;
+    SDL_JoystickID testing_pad_ = 0;  // (testing_pad())
+    Uint64 test_back_since_ = 0;      // when the tested gamepad's B went down (held a second: the test stops)
+    bool test_shown_ = false;         // the Controllers page drew the test in the last frame
+    void pad_test_frame();
     recomp::PadChoices pad_choices_;  // which gamepad is which player's ([controllers]: every game's settings.ini)
     void choose_pad_player(const std::string& identity, int player);
     recomp::Bindings bindings_{};  // (a collection's are every game's)
