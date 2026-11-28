@@ -7,6 +7,9 @@
 #include "pictures.h"
 #include "port.h"
 
+#include "../recomp-common/menu_sdl.h"
+#include "../recomp-common/settings.h"
+
 #include <string>
 
 namespace port {
@@ -29,9 +32,9 @@ void Menu::Configure(bool withStates) {
         // (pages that are ways of running the game: their rows do not count features that are on)
         config.pages.push_back({page.name, page.parent, page.description, false});
     }
-    // The standard layout (recomp-common/menu_layout.h): Online, Display, Game; Alternative modes; the save
-    // states; the other pages and the Saturn's own rows, the reset point's; Reset all options, Reset game, Quit
-    // game, Resume. Speed and Mute are on the Game page, with Cheats and Sound under it.
+    // The standard layout (recomp-common/menu_layout.h), as tabs: the command row (Back, Save state, Load state, Slot,
+    // Reset game, Quit game, Resume) and Game, Display, Sound, Online, Training, Modes, Stage, Cheats and Capture. The
+    // Saturn's own rows, the reset point's, are on the Game tab with Speed and Mute.
     layout::Rows rows;
     rows.states = withStates;
     for (const satrecomp::Page &page : satrecomp::TheGame().pages) {
@@ -58,9 +61,22 @@ void Menu::Configure(bool withStates) {
                               "again; O (or F8) goes on by one frame; - and = change the speed.";
     config.muted = [this] { return muted; };
     config.setMuted = [this](bool to) { muted = to; };
-    config.confirmName = "Enter or A";
-    config.closeName = "Esc";
-    layout::Standard(config, rows);
+    // (an option's default, which X puts back and against which a row shows as changed: as the launcher's Enhanced
+    // preset has it, as Reset all options puts it)
+    {
+        const std::vector<recomp::FeatureInfo> list = satrecomp::FeatureList();
+        recomp::Ini preset("");
+        recomp::SetPreset(preset, list, "enhanced");
+        std::vector<int> defaults = recomp::FeatureValues(preset, list);
+        config.defaultValue = [defaults = std::move(defaults)](size_t feature) { return feature < defaults.size() ? defaults[feature] : 0; };
+    }
+    config.confirmName = recomp::sdl::kConfirmName;
+    config.closeName = recomp::sdl::kCloseName;
+    config.tabsName = recomp::sdl::kTabsName;
+    config.backName = recomp::sdl::kBackName;
+    // (as tabs: the command row, then Game, Display, Sound, Online, Training, Modes, Stage, Cheats and Capture;
+    // layout::Tabbed lays the pages out as Standard does as well)
+    layout::Tabbed(config, rows);
     if (satrecomp::TheGame().exportPictures) {
         // A Pictures page under Game (after Cheats and Sound), with its two commands (Press: the first exports, the
         // second shows the folder)

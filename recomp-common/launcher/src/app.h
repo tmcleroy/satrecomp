@@ -17,6 +17,7 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <map>
 #include <string>
 #include <thread>
 #include <vector>
@@ -75,6 +76,10 @@ public:
     // main.cpp switches them off for those frames. (A collection's launcher, whose games can run several at
     // once, is paused only while one runs and the launcher's window is not the one in front.)
     bool navigation_paused() const;
+    // The gamepad being tested on the Controllers page (0: none): its buttons and sticks only show in the test there,
+    // and move nothing in the launcher (main.cpp leaves it out of ImGui's gamepads), until its B is held for a second,
+    // the test is stopped with the mouse or another gamepad, or the page is left
+    SDL_JoystickID testing_pad() const { return testing_pad_; }
     // A finger dragged on a touch screen (main.cpp): over the sidebar (x, in the window's points, is in it) its list is
     // scrolled by `by` points, as the mouse wheel scrolls it; false where it is not the sidebar's
     bool scroll_sidebar(float x, float by);
@@ -138,6 +143,18 @@ private:
     };
 
     // A game's feature on the pages: the port's feature_shown, given the game's file if it was found good
+    // The Tabs layout (Description::layout): the pages as tabs along the top, a collection's games as a grid
+    bool tabbed() const { return about_.layout == launcher::Description::Layout::Tabs; }
+    void top_bar(float width);
+    void find_card(float width);
+    int tab_count() const;
+    void library_grid(float width);
+    void library_pane(size_t which, float width, float height);
+    void open_details(size_t which);
+    SDL_Texture* tile_picture(size_t which, int& w, int& h);
+    bool in_launcher(const recomp::FeatureInfo& info) const;
+    void board_card(size_t which, float width);
+    void controller_features_card(float width);
     bool feature_shown(const Slot& one, size_t feature);
     // ... and which of its choices the port's choice_shown leaves out (empty: none)
     std::vector<bool> hidden_choices(const Slot& one, size_t feature);
@@ -386,6 +403,17 @@ private:
     const launcher::Collection* collection_ = nullptr;  // a collection's launcher's (a port's: none)
     SDL_Window* window_;
     int page_ = 0;
+    // (the Tabs layout: the game chosen in the grid, and each game's picture: its last screen, picture.png, or its
+    // newest screenshot; looked for again now and then)
+    size_t picked_game_ = static_cast<size_t>(-1);
+    struct Picture {
+        std::filesystem::path path;
+        std::filesystem::file_time_type time{};
+        SDL_Texture* texture = nullptr;
+        int w = 0, h = 0;
+        Uint64 looked = 0;
+    };
+    std::map<std::string, Picture> pictures_;
     std::filesystem::path folder_;          // the player's (a collection's: its own, with its launcher.ini)
     recomp::Ini prefs_;     // launcher.ini: where each game's file is, the Display switches
     std::filesystem::path program_folder_;  // the launcher's
@@ -471,6 +499,10 @@ private:
     bool relaunched_ = false;  // (the new version has been started: this one quits)
 #endif
     int selected_pad_ = 0;
+    SDL_JoystickID testing_pad_ = 0;  // (testing_pad())
+    Uint64 test_back_since_ = 0;      // when the tested gamepad's B went down (held a second: the test stops)
+    bool test_shown_ = false;         // the Controllers page drew the test in the last frame
+    void pad_test_frame();
     recomp::PadChoices pad_choices_;  // which gamepad is which player's ([controllers]: every game's settings.ini)
     void choose_pad_player(const std::string& identity, int player);
     recomp::Bindings bindings_{};  // (a collection's are every game's)

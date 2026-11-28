@@ -48,6 +48,8 @@ constexpr float kSmall = 11.5f;
 
 void set_dark(bool dark);
 bool dark();
+// The in-game menu's palette (dark, a blue accent) in place of the system's light or dark one: the Tabs layout's
+void set_menu_look(bool on);
 const Palette& palette();
 void apply_style(float scale);
 void load_fonts();

@@ -577,7 +577,10 @@ int RunWindowed(Port &port) {
                 continue; // (a finger's: the touch controls')
             }
             switch (ev.type) {
-            case SDL_EVENT_QUIT: running = false; break;
+            case SDL_EVENT_QUIT:
+                port.KeepPicture(); // (the launcher's tile of the game: its last picture)
+                running = false;
+                break;
             case SDL_EVENT_MOUSE_MOTION:
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
             case SDL_EVENT_MOUSE_WHEEL:

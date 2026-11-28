@@ -204,6 +204,11 @@ const launcher::Description& launcher::describe() {
         Description d;
         d.original = "on the Saturn";
         d.file_heading = "GAME DISC";
+        // (the launcher shows only what is set before a game starts: port/main.cpp's LauncherFeatureList marks them;
+        // everything else is the in-game menu's)
+        d.launcher_features_only = true;
+        d.features_name = "Settings";
+        d.layout = launcher::Description::Layout::Tabs;  // (the in-game menu's look: tabs along the top)
 #ifdef __ANDROID__
         // (Android: the system's picker gives the files, which are copied into the app's folder; the .chd or .cue among them
         // is the disc: recomp-common's launcher, Description::file_many)

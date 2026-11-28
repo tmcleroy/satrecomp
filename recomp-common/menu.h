@@ -11,6 +11,7 @@
 // C++17, no dependencies. C hosts use menu_c.h.
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -28,6 +29,10 @@ enum : unsigned {
     kMenuRight = 8,
     kMenuConfirm = 16, // chooses a row, changes it, goes into a page (as Right does)
     kMenuBack = 32,    // leaves a page for the one it was reached from; on the first page, closes the menu
+    // The tabbed menu's (MenuConfig::tabs; the page menu passes over them)
+    kMenuTabPrev = 64,  // the tab before (LB, Q), around
+    kMenuTabNext = 128, // the tab after (RB, E), around
+    kMenuDefault = 256, // the option chosen back to its default (X, Delete)
 };
 
 // What the mouse did (Menu::Mouse), at a place in the picture the menu was last drawn over
@@ -96,6 +101,17 @@ struct MenuPage {
     std::vector<MenuRow::Kind> rows = {};
 };
 
+// A tab of the tabbed menu (MenuConfig::tabs): the rows of its pages one after another (each page's under a heading of
+// its name, when there are more than one), then rows of the first page's kinds. A page under one of them is a
+// row that opens it in the tab's place (Back comes out of it). A tab with nothing on it is left out.
+struct MenuTab {
+    std::string name;
+    std::vector<std::string> pages;
+    // After the pages: Action, Page, Speed, Mute, Reset, ResetOptions, Save, Load, Slot, Quit; Pages stands for the
+    // commands of no category
+    std::vector<MenuRow> rows = {};
+};
+
 struct MenuConfig {
     // The first page, in groups; a line is drawn between groups.
     std::vector<std::vector<MenuRow>> groups;
@@ -128,6 +144,25 @@ struct MenuConfig {
     std::string closeName = "Esc";
     // How many save-state slots the Slot row goes through (1 to slots, around)
     int slots = 9;
+    // The tabbed menu: when there are tabs, the menu is a row of commands (Back at its left, Resume at its right, `bar`
+    // between), the tabs under it and the tab's rows under them; `groups` is then not shown. Empty: the page menu.
+    std::vector<MenuTab> tabs;
+    std::vector<MenuRow> bar; // Save, Load, Slot, Reset, Quit, Mute, Action (Reset and Quit ask for a second press)
+    // Optional: a feature's default, which Default (kMenuDefault) puts back and against which a row shows as changed and
+    // a tab counts its changes (none: 0, off)
+    std::function<int(size_t feature)> defaultValue;
+    // The hint line's name for the buttons that change tab, and for Back (tabbed menu)
+    std::string tabsName = "LB/RB";
+    std::string backName = "B";
+};
+
+// Text in a font of the host's (a smooth one) in place of the menu's dot font, for the window look of the tabbed menu.
+// `size` is the height of a capital in pixels; colours are 0xAABBGGRR (red in the low byte, as the pixels).
+struct MenuFont {
+    virtual ~MenuFont() = default;
+    virtual float Width(const char *s, float size) const = 0;
+    // Drawn with its capitals' tops at y
+    virtual void Draw(uint32_t *pixels, int width, int height, float x, float y, float size, uint32_t color, const char *s) const = 0;
 };
 
 // Presses, with the arrows repeating while held, for a host that knows whether each button is down: given what is down
@@ -197,6 +232,19 @@ public:
     bool Compact() const {
         return m_compact;
     }
+    // The tabbed menu: compact is its CRT look (drawn on the board's own picture, the dot font, a solid bar for the row
+    // chosen, one tab shown at a time); otherwise its window look, in `font` where the host gives one (it must last as
+    // long as the menu; nullptr: the dot font)
+    void SetFont(const MenuFont *font) {
+        m_font = font;
+    }
+    bool Tabbed() const {
+        return !m_config.tabs.empty();
+    }
+    // The tab shown, by its place in MenuConfig::tabs (tabbed menu)
+    int Tab() const {
+        return m_tabsShown.empty() ? 0 : m_tabsShown[static_cast<size_t>(std::clamp(m_tab, 0, static_cast<int>(m_tabsShown.size()) - 1))];
+    }
 
 private:
     struct Row {
@@ -204,8 +252,43 @@ private:
         size_t index;         // of the feature, the command or the first page's row
         std::string page;     // the page a row leads to
         bool divider = false; // a line above it: the first of a group of rows
+        std::string heading = {}; // (tabbed) a heading above it: the first of a page's rows in a tab
     };
     void Fill();
+    void PageRows(const std::string &page, bool tabbed);
+    Chosen RowButtons(unsigned pressed);
+    void Describe(const Row &row, std::string &title, std::string &value, int &valueKind, std::string &description) const;
+    // (the tabbed menu)
+    void FillTabbed();
+    Chosen ButtonsTabbed(unsigned pressed);
+    Chosen MouseTabbed(MenuMouse what, float x, float y);
+    void DrawTabbed(uint32_t *pixels, int width, int height) const;
+    void ShowTab(int tab);
+    bool InTab(const std::string &page) const;
+    bool TabPageShown(const std::string &page) const;
+    bool Changed(size_t feature) const;
+    int FeatureDefault(size_t feature) const;
+    struct BarItem {
+        int kind;     // kRowBack, kRowResume or the bar row's
+        size_t index; // the bar row's, in m_config.bar
+    };
+    std::vector<BarItem> m_bar;
+    std::vector<int> m_tabsShown; // (the tabs with something on them, by their place in MenuConfig::tabs)
+    std::vector<int> m_tabRow;    // (the row each tab was left on)
+    int m_tab = 0;
+    enum Zone { kZoneBar, kZoneTabs, kZoneRows };
+    int m_zone = kZoneRows;
+    int m_barAt = 1;
+    int m_armed = -1; // (the bar's item pressed once: Reset and Quit want a second)
+    const MenuFont *m_font = nullptr;
+    // (where DrawTabbed last put each thing the mouse can point at)
+    struct Hit {
+        int what; // kHit...
+        int index;
+        float x, y, w, h;
+    };
+    mutable std::vector<Hit> m_hits;
+    mutable int m_firstShown = 0; // (the tab's first row shown, when they do not all fit)
     bool Favourites(size_t feature) const;
     const MenuPage *PageOf(const std::string &name) const;
     std::string Parent(const std::string &page) const;

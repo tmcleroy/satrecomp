@@ -160,6 +160,8 @@ struct Port {
     // F12: the picture as the window shows it (but the menu) to screenshots/ beside settings.ini, named after the
     // game and the time; what to tell the player
     std::string Screenshot();
+    // The picture as it is, for the launcher's tile of the game (picture.png in the game's folder): on quitting
+    void KeepPicture();
     // Save states: the whole game as it is between two frames, to a file and back. False (and why, in
     // `error`) if that did not work; a failed load leaves the game as it was.
     bool SaveState(const std::string &path, std::string &error);
