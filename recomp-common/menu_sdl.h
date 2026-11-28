@@ -33,6 +33,7 @@ constexpr const char *kCloseName = "Esc";
 // ... and the tabbed menu's for changing tab and for Back (MenuConfig::tabsName, backName)
 constexpr const char *kTabsName = "Q/E or LB/RB";
 constexpr const char *kBackName = "Backspace or B";
+constexpr const char *kHotkeyName = "H or Y";
 
 // A key that opens and closes the menu (tabFree: the game has not been given Tab)
 inline bool MenuKey(SDL_Scancode key, bool tabFree = true) {
@@ -86,6 +87,7 @@ inline unsigned MenuHeld(const bool *keys, SDL_Gamepad *const *pads, int count) 
         held |= keys[SDL_SCANCODE_Q] ? kMenuTabPrev : 0;
         held |= keys[SDL_SCANCODE_E] ? kMenuTabNext : 0;
         held |= keys[SDL_SCANCODE_DELETE] ? kMenuDefault : 0;
+        held |= keys[SDL_SCANCODE_H] ? kMenuHotkey : 0;
     }
     constexpr Sint16 kTilt = 16384; // (half way)
     for (int i = 0; i < count; i++) {
@@ -103,6 +105,7 @@ inline unsigned MenuHeld(const bool *keys, SDL_Gamepad *const *pads, int count) 
         held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) ? kMenuTabPrev : 0;
         held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) ? kMenuTabNext : 0;
         held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_WEST) ? kMenuDefault : 0;
+        held |= SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_NORTH) ? kMenuHotkey : 0;
     }
     return held;
 }

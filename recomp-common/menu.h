@@ -33,6 +33,7 @@ enum : unsigned {
     kMenuTabPrev = 64,  // the tab before (LB, Q), around
     kMenuTabNext = 128, // the tab after (RB, E), around
     kMenuDefault = 256, // the option chosen back to its default (X, Delete)
+    kMenuHotkey = 512,  // a hotkey for the option chosen (Y, H): the host listens for it (Menu::Listening)
 };
 
 // What the mouse did (Menu::Mouse), at a place in the picture the menu was last drawn over
@@ -154,6 +155,12 @@ struct MenuConfig {
     // The hint line's name for the buttons that change tab, and for Back (tabbed menu)
     std::string tabsName = "LB/RB";
     std::string backName = "B";
+    // Optional, the tabbed menu: hotkeys. The name of the key or button the host has given a feature ("": none), shown
+    // on its row. With it, Hotkey (kMenuHotkey) on a feature's row has the menu ask for one (Menu::Listening), and the
+    // host, given the next key or button, keeps it (hotkey.h) and calls StopListening; in the game the host steps the
+    // feature with Menu::Step. hotkeyName: the hint line's name for the Hotkey buttons.
+    std::function<std::string(size_t feature)> hotkey;
+    std::string hotkeyName = "Y";
 };
 
 // Text in a font of the host's (a smooth one) in place of the menu's dot font, for the window look of the tabbed menu.
@@ -218,6 +225,21 @@ public:
     // that picture's), and what it did. Returns as Buttons does. A press away from the rows does nothing.
     Chosen Mouse(MenuMouse what, float x, float y);
     // A line to tell the player (why not, say), until the next press
+    // Hotkeys (MenuConfig::hotkey): the feature a key or button is being asked for (-1: none). The host gives it the
+    // next key or button pressed, then calls StopListening; a note (ListenNote) says why one is not taken.
+    int Listening() const {
+        return m_listen;
+    }
+    void StopListening() {
+        m_listen = -1;
+        m_listenNote.clear();
+    }
+    void ListenNote(const std::string &text) {
+        m_listenNote = text;
+    }
+    // A feature stepped as a hotkey does (1 the next choice, -1 the one before; around, a switch flipped), the menu
+    // open or not: "Run-ahead: 2 frames", translated, for the host to show
+    std::string Step(size_t feature, int direction);
     void Note(const std::string &text) {
         m_note = text;
     }
@@ -306,6 +328,8 @@ private:
     int m_speed = -1; // (-1: not chosen yet, so full speed)
     int m_slot = 1;
     std::string m_note;
+    int m_listen = -1;
+    std::string m_listenNote;
     // (where Draw last put each row shown, for Mouse: the row, and its top and bottom; and the panel's left and right)
     struct Shown {
         int row;

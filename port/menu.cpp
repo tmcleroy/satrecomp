@@ -26,6 +26,7 @@ void Menu::Open(bool withStates) {
 
 void Menu::Configure(bool withStates) {
     m_configured = true;
+    m_withStates = withStates;
     namespace layout = recomp::layout;
     recomp::MenuConfig config;
     for (const satrecomp::Page &page : satrecomp::TheGame().pages) {
@@ -50,7 +51,9 @@ void Menu::Configure(bool withStates) {
                                 "Goes back to the reset point (F3, or the right stick's click)."});
     }
     rows.resetDescription = "Starts the game again, as when it was switched on. Your saves are kept.";
+    m_ids.clear();
     for (const satrecomp::Feature &feature : satrecomp::TheGame().features) {
+        m_ids.push_back(feature.name);
         config.features.push_back({feature.category, feature.title, feature.description, {feature.choices.begin(), feature.choices.end()}});
     }
     // (what the player chose: a training aid shows as chosen outside a training session too, where it does nothing)
@@ -74,6 +77,10 @@ void Menu::Configure(bool withStates) {
     config.closeName = recomp::sdl::kCloseName;
     config.tabsName = recomp::sdl::kTabsName;
     config.backName = recomp::sdl::kBackName;
+    // (each option's hotkey, shown on its row: H or Y there gives it one)
+    LoadHotkeys();
+    config.hotkey = [this](size_t feature) { return feature < m_ids.size() ? m_hotkeys.Of(m_ids[feature]).Name() : std::string(); };
+    config.hotkeyName = recomp::sdl::kHotkeyName;
     // (as tabs: the command row, then Game, Display, Sound, Online, Training, Modes, Stage, Cheats and Capture;
     // layout::Tabbed lays the pages out as Standard does as well)
     layout::Tabbed(config, rows);
@@ -90,6 +97,44 @@ void Menu::Configure(bool withStates) {
                                    "Opens " + folder + " (where Export pictures writes) in your file manager."});
     }
     m_menu.Configure(std::move(config));
+}
+
+void Menu::LoadHotkeys() {
+    m_hotkeysLoaded = true;
+    if (settingsPath.empty()) {
+        return;
+    }
+    recomp::Ini settings(settingsPath);
+    settings.load();
+    m_hotkeys.Load(settings.get("menu", "hotkeys"));
+}
+
+bool Menu::HotkeyListen(const SDL_Event &event, const std::function<std::string(recomp::Hotkey)> &taken) {
+    if (!m_menu.IsOpen()) {
+        return false;
+    }
+    bool changed = false;
+    const bool answered = recomp::sdl::HotkeyListen(event, m_menu, m_hotkeys, m_ids, taken, changed);
+    if (changed && !settingsPath.empty()) {
+        recomp::Ini settings(settingsPath);
+        settings.load();
+        settings.set("menu", "hotkeys", m_hotkeys.Save());
+        settings.save();
+    }
+    return answered;
+}
+
+std::string Menu::HotkeyPress(const SDL_Event &event) {
+    if (!m_hotkeysLoaded) {
+        LoadHotkeys(); // (before the menu is first opened: those kept from before)
+    }
+    if (IsOpen() || m_hotkeys.Find(recomp::sdl::HotkeyOf(event)).empty()) {
+        return "";
+    }
+    if (!m_configured) {
+        Configure(m_withStates); // (the menu's options, for Step, before it is first opened)
+    }
+    return recomp::sdl::HotkeyPress(event, m_menu, m_hotkeys, m_ids);
 }
 
 void Menu::ConfigureSpeeds() {
